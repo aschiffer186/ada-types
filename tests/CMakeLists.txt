@@ -1,0 +1,14 @@
+find_package(GTest REQUIRED)
+
+add_executable(compile_check compile_check.cpp)
+target_link_libraries(compile_check PRIVATE ada_types)
+
+add_executable(test_signed_integer test_signed_integer.cpp)
+target_link_libraries(test_signed_integer PRIVATE ada_types GTest::gtest_main)
+add_test(NAME test_signed_integer COMMAND test_signed_integer)
+gtest_discover_tests(test_signed_integer)
+
+add_executable(test_strong_type_base test_strong_type_base.cpp)
+target_link_libraries(test_strong_type_base PRIVATE ada_types GTest::gtest_main)
+add_test(NAME test_strong_type_base COMMAND test_strong_type_base)
+gtest_discover_tests(test_strong_type_base)
