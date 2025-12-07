@@ -1,25 +1,48 @@
 {
-    "version": 6, 
+    "version": 6,
     "configurePresets": [
         {
-            "name": "common", 
-            "binaryDir": "build/${presetName}", 
-            "hidden": true, 
-            "cacheVariables": { 
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "On", 
-                "CMAKE_CXX_STANDARD": "23", 
+            "name": "common",
+            "binaryDir": "build/${presetName}",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "On",
                 "CMAKE_CXX_EXTENSIONS": "Off"
             }
-        }, 
+        },
         {
             "name": "ninja",
             "displayName": "Ninja",
             "inherits": "common",
-            "generator": "Ninja Multi-Config", 
-            "cacheVariables": { 
-                "CMAKE_CXX_FLAGS": "-Wall -Wextra -pedantic", 
+            "generator": "Ninja Multi-Config",
+            "cacheVariables": {
+                "CMAKE_CXX_FLAGS": "-Wall -Wextra -Werror -pedantic",
                 "CMAKE_CXX_FLAGS_DEBUG": "-O0 -g",
                 "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "ninja-debug",
+            "configurePreset": "ninja",
+            "displayName": "Ninja (Debug)",
+            "configuration": "Debug"
+        },
+        {
+            "name": "ninja-release",
+            "configurePreset": "ninja",
+            "displayName": "Ninja (Release)",
+            "configuration": "Release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "default",
+            "configurePreset": "ninja",
+            "configuration": "Debug",
+            "output": {
+                "outputOnFailure": true
             }
         }
     ]

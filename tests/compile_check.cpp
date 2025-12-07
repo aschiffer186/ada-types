@@ -1,16 +1,17 @@
-#include "ada_types.hpp"
+#include <memory>
 
-using int1 = ada_types::new_type<"int1", ada_types::range<0, 32>>;
-using int2 = ada_types::new_type<"int2", ada_types::integer>;
-using int_ref = ada_types::new_type<"int1", int&, ada_types::range<0, 32>>;
+#include "type_factory.hpp"
 
-constexpr int foo() {
-  int1 i{10};
-  return 0;
-}
+struct S {};
 
 int main() {
-  constexpr int i = foo();
+  using type1 = ada_types::new_type<"type1", std::unique_ptr<int>>;
+  using type2 = ada_types::new_type<"type2", int, ada_types::arithmetic_tag>;
+  using type3 = ada_types::new_type<"type3", ada_types::range<0, 12>>;
 
-  return 0;
+  [[maybe_unused]] type1 t1;
+  [[maybe_unused]] type2 t2;
+  [[maybe_unused]] type3 t3;
+
+  [[maybe_unused]] ada_types::natural n;
 }
