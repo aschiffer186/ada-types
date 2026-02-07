@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.27)
-project(ada_typing LANGUAGES CXX)
+project(cina LANGUAGES CXX)
 
 add_subdirectory(include)
 
