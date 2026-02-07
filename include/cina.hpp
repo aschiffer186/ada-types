@@ -7,7 +7,6 @@
 //  3) Eliminate unfriendly C++-isms
 //  4) Add as much information into pre-condtions of types as possible.
 
-#include <__format/concepts.h>
 #include <concepts>
 #include <format>
 #include <limits>
@@ -140,8 +139,8 @@ public:
 // --- Skills ---
 
 template <typename Derived> struct equality_comparison {
-  friend constexpr auto operator==(const Derived& lhs,
-                                   const Derived& rhs) noexcept -> bool
+  friend constexpr auto operator==(const Derived& lhs, const Derived& rhs)
+      -> bool
     requires std::equality_comparable<underlying_type<Derived>>
   {
     return lhs.unwrap() == rhs.unwrap();
@@ -149,12 +148,17 @@ template <typename Derived> struct equality_comparison {
 };
 
 template <typename Derived> struct three_way_comparison {
-  friend constexpr auto operator<=>(const Derived& lhs,
-                                    const Derived& rhs) noexcept
-      -> std::strong_ordering
+  friend constexpr auto operator<=>(const Derived& lhs, const Derived& rhs)
     requires std::three_way_comparable<underlying_type<Derived>>
   {
     return lhs.unwrap() <=> rhs.unwrap();
+  }
+};
+
+template <typename Derived> struct less {
+  friend constexpr auto operator<(const Derived& lhs,
+                                  const Derived& rhs) noexcept -> bool {
+    return lhs.unwrap() < rhs.unwrap();
   }
 };
 
@@ -471,7 +475,7 @@ public:
 template <typename Tag>
 class boolean_type : public strong_type<Tag, bool>,
                      equality_comparison<boolean_type<Tag>>,
-                     three_way_comparison<boolean_type<Tag>>,
+                     less<boolean_type<Tag>>,
                      output_stream<boolean_type<Tag>> {
 
   using base_type = strong_type<Tag, bool>;
