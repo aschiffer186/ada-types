@@ -1,46 +1,82 @@
 #ifndef CINA_HPP
 #define CINA_HPP
 
-// Design goals:
-//  1) Prevent accidental mixing of different types (similar to Ada).
-//  2) Minimal runtime overhead (zero-cost abstractions).
-//  3) Eliminate unfriendly C++-isms
-//  4) Add as much information into pre-condtions of types as possible.
-
+#include <cmath> // abs, sqrt, etc.
 #include <concepts>
 #include <format>
-#include <limits>
-#include <memory>
-#include <ostream>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <utility>
+#include <initializer_list>
+#include <limits>      // numeric_limits
+#include <memory>      // unique_ptr
+#include <ostream>     // ostream
+#include <stdexcept>   // runtime_error
+#include <string>      // string
+#include <string_view> // string_view
+#include <type_traits> // remove_cvref_t, other traits
+#include <utility>     // in_place, in_place_t
+#include <version>
+
+#if defined(__cpp_lib_constexpr_memory) && __cpp_lib_constexpr_memory >= 202202L
+#define CINA_POINTER_CONSTEXPR constexpr
+#else
+#define CINA_POINTER_CONSTEXPR
+#endif
+
+#if defined(__cpp_lib_constexpr_cmath) && __cpp_lib_constexpr_cmath >= 202202L
+#define CINA_BASIC_CMATH_CONSTEXPR constexpr
+#else
+#define CINA_BASIC_CMATH_CONSTEXPR
+#endif
+
+#if defined(__cpp_lib_constexpr_cmath) && __cpp_lib_constexpr_cmath >= 202306L
+#define CINA_CMATH_CONSTEXPR constexpr
+#else
+#define CINA_CMATH_CONSTEXPR
+#endif
 
 namespace cina {
 
 // --- Traits and Concepts ---
 // --- C++ Concepts ---
+
+/// \brief Concept modeling that a type supports being written to an output
+/// stream.
+///
+/// \tparam T The type to check.
 template <typename T>
 concept cxx_streamable = requires(T a, std::ostream& os) {
   { os << a } -> std::same_as<std::ostream&>;
 };
 
+/// \tparam Concept modeling that \c std::hash is enabled for a type.
+///
+/// \tparam T The type to check.
 template <typename T>
 concept cxx_hashable = requires(T a) {
   { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
 };
 
+/// \brief Concept modeling that a type is an "arithmetic" signed integral type.
+///
+/// This concept is modeled if \c T is a signed-integral type and \c T is not
+/// one of \c bool, \c char16_t, \c char32_t, or \c wchar_t.
+///
+/// \tparam T The type to check.
 template <typename T>
 concept cxx_arithmetic_integral =
     std::signed_integral<T> && !std::same_as<T, bool> &&
     !std::same_as<T, char16_t> && !std::same_as<T, char32_t> &&
     !std::same_as<T, wchar_t>;
 
+/// \brief Concept modeling that a type is an unsigned integral type.
+///
+/// \tparam T The type to check.
 template <typename T>
 concept cxx_unsigned_integral = std::unsigned_integral<T>;
 
+/// \brief Concept modeling that a type satisfies the NullbalePointer
+/// requirement in the C++ standard.
+///
+/// \tparam T The type to check.
 template <typename T>
 concept cxx_nullable_pointer =
     std::equality_comparable<T> && std::is_default_constructible_v<T> &&
@@ -55,15 +91,58 @@ concept cxx_nullable_pointer =
       { nullptr != ptr1 } -> std::convertible_to<bool>;
     };
 
+/// \brief Concept modeling that a type satisifes the Container requirement in
+/// the C++ standard.
+///
+/// \tparam T The type to check.
+template <typename T>
+concept cxx_container = requires {
+  typename T::value_type;
+  typename T::reference;
+  typename T::const_reference;
+  typename T::size_type;
+  typename T::difference_type;
+  typename T::iterator;
+  typename T::const_iterator;
+};
+
+/// \brief Concept modeling that a type satisfies the AllocatorAwareContainer
+/// requirement in the C++ standard.
+///
+/// \tparam C The type to check.
+template <typename C>
+concept cxx_allocator_aware_container =
+    cxx_container<C> && requires(const C c) {
+      typename C::allocator_type;
+      { c.get_allocator() } -> std::same_as<typename C::allocator_type>;
+    };
+
+/// \brief Concept modeling that a type satisfies the SequenceContainer
+/// requirement in the C++ standard.
+///
+/// \tparam C The type to check.
+template <typename C>
+concept cxx_sequence_container =
+    cxx_container<C> &&
+    requires(std::initializer_list<typename C::value_type> il, C v, const C& cv,
+             typename C::const_iterator p, C::value_type t,
+             C::value_type&& rt) {
+      { C(il) } -> std::same_as<C>;
+      { v = il } -> std::same_as<C&>;
+      { v.insert(p, t) } -> std::same_as<typename C::iterator>;
+      { v.insert(p, rt) } -> std::same_as<typename C::iterator>;
+    };
+
 /// \brief Concept indicating that a conversion from \c From to \c To is
 /// non-narrowing.
 ///
-/// Concept indicating that a conversion from \c From to \c To is non-narrowing.
-/// This concept is only modeled if:
+/// Concept indicating that a conversion from \c From to \c To is
+/// non-narrowing. This concept is only modeled if:
 /// 1. Both \c From and \c To are integral types of the same signedness, and
 ///    the size of \c From is less than or equal to the size of \c To.
 /// 2. \c From is an integral type and \c To is a floating-point type.
-/// 3. Both \c From and \c To are floating-point types, and the size of \c From
+/// 3. Both \c From and \c To are floating-point types, and the size of \c
+/// From
 ///    is less than or equal to the size of \c To
 template <typename From, typename To>
 concept non_narrowing_conversion =
@@ -77,6 +156,8 @@ concept non_narrowing_conversion =
 
 template <typename Tag, typename UnderlyingType> class strong_type;
 
+template <typename Tag> class boolean_type;
+
 template <typename Tag, cxx_arithmetic_integral T> class integral_type;
 
 template <typename Tag, cxx_arithmetic_integral T> class bitwise_integral_type;
@@ -89,11 +170,22 @@ class bounded_integral_type;
 
 template <typename Tag, cxx_nullable_pointer Pointer> class pointer_type;
 
+template <typename Tag, typename T, typename Deleter = std::default_delete<T>>
+class unique_ptr_type;
+
+template <typename Tag, cxx_container Container> class container_type;
+
+template <typename Tag, cxx_allocator_aware_container Container>
+class allocator_aware_container_type;
+
+template <typename Tag, cxx_sequence_container Container>
+class sequence_container_type;
 // --- Cina Concepts ---
 
+/// \cond
 namespace _detail {
 template <typename Tag, typename UnderlyingType>
-auto _strong_type_base(strong_type<Tag, UnderlyingType>)
+auto _strong_type_base(const strong_type<Tag, UnderlyingType>&)
     -> strong_type<Tag, UnderlyingType>;
 
 template <typename T>
@@ -106,18 +198,66 @@ constexpr bool is_strong_type_impl<T, std::void_t<_strong_type_base_t<T>>> =
     true;
 
 template <typename Tag, typename UnderlyingType>
-auto _get_underlying_type(strong_type<Tag, UnderlyingType>) -> UnderlyingType;
+auto _get_underlying_type(const strong_type<Tag, UnderlyingType>&)
+    -> UnderlyingType;
 
 } // namespace _detail
+/// \endcond
 
+/// \brief Concept modeling that a type is a strong type provided by the cina
+/// library.
 template <typename T>
 concept strong_type_like = _detail::is_strong_type_impl<std::remove_cvref_t<T>>;
 
+/// \brief Computes the underlying type of a strong type provided by the cina
+/// library.
+///
+/// \tparam T The strong type to compute the underlying type of.
 template <strong_type_like T>
 using underlying_type =
     decltype(_detail::_get_underlying_type(std::declval<T>()));
 
-// Custom Exceptions
+/// \cond
+namespace _detail {
+template <typename> constexpr bool is_integral_type = false;
+
+template <typename Tag, cxx_arithmetic_integral T>
+constexpr bool is_integral_type<integral_type<Tag, T>> = true;
+
+template <typename> constexpr bool is_bitwise_integral_type = false;
+
+template <typename Tag, cxx_arithmetic_integral T>
+constexpr bool is_bitwise_integral_type<bitwise_integral_type<Tag, T>> = true;
+
+template <typename> constexpr bool is_floating_point_type = false;
+
+template <typename Tag, std::floating_point T>
+constexpr bool is_floating_point_type<floating_point_type<Tag, T>> = true;
+
+template <typename> constexpr bool is_bounded_integral = false;
+
+template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
+          std::intmax_t Max>
+constexpr bool is_bounded_integral<bounded_integral_type<Tag, T, Min, Max>> =
+    true;
+} // namespace _detail
+/// \endcond
+
+template <typename T>
+concept integral = _detail::is_integral_type<std::remove_cvref_t<T>> ||
+                   _detail::is_bitwise_integral_type<std::remove_cvref_t<T>>;
+
+template <typename T>
+concept bounded_integral = _detail::is_bounded_integral<std::remove_cvref_t<T>>;
+template <typename T>
+concept floating_point =
+    _detail::is_floating_point_type<std::remove_cvref_t<T>>;
+
+template <typename T>
+concept arithmetic = integral<T> || floating_point<T> || bounded_integral<T>;
+
+// --- Custom Exceptions ---
+
 class cina_exception : public std::runtime_error {
 public:
   explicit cina_exception(const std::string& what_arg)
@@ -162,6 +302,7 @@ template <typename Derived> struct less {
   }
 };
 
+/// \cond
 namespace _detail {
 template <typename> constexpr bool is_int8_type = false;
 
@@ -171,6 +312,7 @@ constexpr bool is_int8_type<integral_type<Tag, std::int8_t>> = true;
 template <typename Tag>
 constexpr bool is_int8_type<bitwise_integral_type<Tag, std::int8_t>> = true;
 } // namespace _detail
+/// \endcond
 
 template <typename Derived> struct output_stream {
   friend constexpr auto operator<<(std::ostream& os, const Derived& value)
@@ -252,8 +394,6 @@ template <typename Derived> struct modulo {
 };
 
 template <typename Derived> struct negation {
-  static_assert(strong_type_like<Derived>);
-
   friend constexpr auto operator-(const Derived& value) noexcept -> Derived {
     return Derived(-value.unwrap());
   }
@@ -354,6 +494,10 @@ template <typename Derived> struct bitwise_shift {
   }
 };
 
+namespace _detail {
+template <typename...> constexpr bool dependent_false = false;
+}
+
 template <typename Tag, typename UnderlyingType>
 class strong_type : equality_comparison<strong_type<Tag, UnderlyingType>> {
 public:
@@ -397,7 +541,8 @@ public:
              (!strong_type_like<U>)
   constexpr explicit strong_type(U&& value) noexcept(
       std::is_nothrow_constructible_v<UnderlyingType, U>)
-      : _m_dont_use(std::forward<U>(value)) {}
+      : _m_do_not_use_only_public_to_make_usable_as_nttp(
+            std::forward<U>(value)) {}
 
   /// \brief Constructor
   ///
@@ -419,7 +564,8 @@ public:
     requires std::constructible_from<UnderlyingType, Args...>
   constexpr explicit strong_type(std::in_place_t, Args&&... args) noexcept(
       std::is_nothrow_constructible_v<UnderlyingType, Args...>)
-      : _m_dont_use(std::forward<Args>(args)...) {}
+      : _m_do_not_use_only_public_to_make_usable_as_nttp(
+            std::forward<Args>(args)...) {}
 
   /// \brief Constructor
   ///
@@ -449,18 +595,27 @@ public:
                                    is_nothrow_constructible_v<
                                        UnderlyingType,
                                        std::initializer_list<U>&, Args...>)
-      : _m_dont_use(il, std::forward<Args>(args)...) {}
+      : _m_do_not_use_only_public_to_make_usable_as_nttp(
+            il, std::forward<Args>(args)...) {}
 
   /// \brief Returns a reference to the underlying value.
   ///
   /// \return A const-reference to the underlying value.
   constexpr auto unwrap() const& noexcept -> const UnderlyingType& {
-    return _m_dont_use;
+    return _m_do_not_use_only_public_to_make_usable_as_nttp;
   }
 
-  // Should only be used by Cina, not by users directly.
-  // Use unwrap() instead!.
-  UnderlyingType _m_dont_use{};
+  constexpr auto unwrap() && noexcept -> UnderlyingType&& {
+    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp);
+  }
+
+  constexpr auto unwrap() const&& noexcept -> const UnderlyingType&& {
+    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp);
+  }
+
+  /// Should only be used by Cina, not by users directly.
+  /// Use unwrap() instead!.
+  UnderlyingType _m_do_not_use_only_public_to_make_usable_as_nttp{};
 };
 
 // --- Boolean Type ---
@@ -468,9 +623,10 @@ public:
 /// \brief Strongly-type boolean value.
 ///
 /// Class template \c boolean_type is a strongly typed boolean value.
-/// This type provides additional safety over the built-in \c bool by not being
-/// implicitly convertible to integral types and not providing overloads of any
-/// arithmetic operations.
+/// This type provides additional safety over the built-in \c bool by not
+/// being implicitly convertible to integral types and not providing overloads
+/// of any arithmetic operations.
+///
 /// \tparam Tag A unique tag type to distinguish different boolean types.
 template <typename Tag>
 class boolean_type : public strong_type<Tag, bool>,
@@ -493,33 +649,44 @@ public:
   constexpr explicit boolean_type(const bool value) noexcept
       : base_type(value) {}
 
-  constexpr explicit operator bool() const noexcept {
-    return this->_m_dont_use;
-  }
+  constexpr explicit operator bool() const noexcept { return this->unwrap(); }
 
 private:
   friend constexpr auto operator&&(const boolean_type lhs,
                                    const boolean_type rhs) noexcept
       -> boolean_type {
-    return boolean_type(lhs._m_dont_use && rhs._m_dont_use);
+    return boolean_type(lhs.unwrap() && rhs.unwrap());
   }
 
   friend constexpr auto operator||(const boolean_type lhs,
                                    const boolean_type rhs) noexcept
       -> boolean_type {
-    return boolean_type(lhs._m_dont_use || rhs._m_dont_use);
+    return boolean_type(lhs.unwrap() || rhs.unwrap());
   }
 
   friend constexpr auto operator!(const boolean_type value) noexcept
       -> boolean_type {
-    return boolean_type(!value._m_dont_use);
+    return boolean_type(!value.unwrap());
   }
 };
 
 // --- Basic Arithmetic Types ---
 
+/// \brief Strongly-type integral type.
+///
+/// Class template \c integral_type is a strongly typed integral type.
+/// It provides all of the same functionality as built-in signed-integral
+/// types except it cannot be instantiated from \c bool, \c char16_t, \c
+/// char32_t, or
+/// \c wchar_t and does not provide bitwise operations. Due to common practice
+/// of \c std::int8_t being an alias for \c char, this class can be
+/// instantiated from \c char. Use \c bitwise_integral_type for integral types
+/// that should support bitwise operations.
+///
+/// \tparam Tag A unique tag type to distinguish different integral types.
+/// \tparam T The underlying integral type.
 template <typename Tag, cxx_arithmetic_integral T>
-class integral_type : strong_type<Tag, T>,
+class integral_type : public strong_type<Tag, T>,
                       equality_comparison<integral_type<Tag, T>>,
                       three_way_comparison<integral_type<Tag, T>>,
                       output_stream<integral_type<Tag, T>>,
@@ -534,8 +701,17 @@ class integral_type : strong_type<Tag, T>,
   using base_type = strong_type<Tag, T>;
 
 public:
+  /// \brief Constructor
+  ///
+  /// Constructs a \c integral_type from the specified value.
+  ///
+  /// \pre The conversion from \c U to \c T is non-narrowing.
+  /// \post <tt>unwrap() == static_cast<T>(value)</tt>.
+  ///
+  /// \tparam U The type of the value to construct the \c integral_type from.
+  /// \param value The value to construct the \c integral_type from.
   template <typename U>
-    requires non_narrowing_conversion<U, T>
+    requires(!strong_type_like<U> && non_narrowing_conversion<U, T>)
   constexpr explicit integral_type(const U value) noexcept
       : base_type(static_cast<T>(value)) {}
 };
@@ -639,6 +815,13 @@ public:
     return this_representation == other_representation;
   }
 
+  /// \brief Returns true if \c this is NaN
+  ///
+  /// \return \c true \c this is NaN
+  constexpr auto is_nan() const noexcept -> bool {
+    return std::isnan(this->unwrap());
+  }
+
 private:
   friend constexpr auto operator==(const floating_point_type /*lhs*/,
                                    const floating_point_type /*rhs*/) noexcept
@@ -651,15 +834,28 @@ template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
 class bounded_integral_type : public strong_type<Tag, T> {
   using base_type = strong_type<Tag, T>;
   static_assert(Min <= Max);
+  static_assert(Max <= std::numeric_limits<T>::max() &&
+                Max >= std::numeric_limits<T>::min());
+  static_assert(Min >= std::numeric_limits<T>::min() &&
+                Min <= std::numeric_limits<T>::max());
 
   template <typename U> constexpr static bool dependent_false = false;
 
 public:
+  /// The minimum value that the specified \c bounded_integral_type can hold.
+  constexpr static bounded_integral_type min{Min};
+  /// The maximum value that the specified \c bounded_integral_type can hold.
+  constexpr static bounded_integral_type max{Max};
+
   template <typename U>
   constexpr explicit bounded_integral_type(const U value)
       : base_type(static_cast<T>(value)) {
     constexpr U min_input_value = std::numeric_limits<U>::min();
     constexpr U max_input_value = std::numeric_limits<U>::max();
+
+    static_assert(min_input_value < Max || max_input_value > Min,
+                  "The range of the input type must not be completely "
+                  "outside the bounds of the bounded_integral_type");
 
     if constexpr (min_input_value < Min) {
       if (value < Min) [[unlikely]] {
@@ -689,10 +885,44 @@ public:
   template <typename U, std::intmax_t OtherMin, std::intmax_t OtherMax>
   constexpr explicit bounded_integral_type(
       const bounded_integral_type<Tag, U, OtherMin, OtherMax> value)
-      : base_type(value.unwrap()) {}
+      : base_type(value.unwrap()) {
+    constexpr U min_input_value =
+        bounded_integral_type<Tag, U, OtherMin, OtherMax>::min.unwrap();
+    constexpr U max_input_value =
+        bounded_integral_type<Tag, U, OtherMin, OtherMax>::max.unwrap();
+
+    static_assert(min_input_value < Max || max_input_value > Min,
+                  "The range of the input type must not be completely "
+                  "outside the bounds of the bounded_integral_type");
+
+    if constexpr (min_input_value < Min) {
+      if (value.unwrap() < Min) [[unlikely]] {
+        if (std::is_constant_evaluated()) {
+          throw out_of_range("Value is below minimum bound");
+        } else {
+          std::string message =
+              std::format("Value {} is below minimum bound of {}", value, Min);
+          throw out_of_range(message);
+        }
+      }
+    }
+
+    if constexpr (max_input_value > Max) {
+      if (value.unwrap() > Max) [[unlikely]] {
+        if (std::is_constant_evaluated()) {
+          throw out_of_range("Value is above maximum bound");
+        } else {
+          std::string message =
+              std::format("Value {} is above maximum bound of {}", value, Max);
+          throw out_of_range(message);
+        }
+      }
+    }
+  }
 };
 
 // --- Pointer Types ---
+
 template <typename Tag, cxx_nullable_pointer Pointer>
 class pointer_type : public strong_type<Tag, Pointer>,
                      equality_comparison<pointer_type<Tag, Pointer>>,
@@ -707,45 +937,48 @@ public:
   constexpr pointer_type(std::nullptr_t) noexcept : base_type(nullptr) {}
 
   template <typename U>
-    requires std::convertible_to<U, Pointer>
-  constexpr explicit pointer_type(U ptr) noexcept : base_type(ptr) {}
+    requires std::convertible_to<U*, Pointer>
+  constexpr explicit pointer_type(U* const ptr) noexcept : base_type(ptr) {}
 
   constexpr explicit operator bool() const noexcept {
-    return this->_m_dont_use != nullptr;
+    return this->unwrap() != nullptr;
   }
 
   constexpr auto operator*() const
       -> std::add_lvalue_reference_t<element_type> {
-    return *this->_m_dont_use;
+#ifdef CINA_ENFORCE_PRECONDITIONS
+    assert(this->unwrap() != nullptr && "Dereferencing a null pointer_type");
+#endif
+    return *this->unwrap();
   }
 
   constexpr auto operator->() const noexcept -> pointer {
-    return this->_m_dont_use;
+    return this->unwrap();
   }
 
 private:
   friend constexpr auto operator==(std::nullptr_t /*lhs*/,
                                    const pointer_type rhs) -> bool {
-    return rhs._m_dont_use == nullptr;
+    return rhs.unwrap() == nullptr;
   }
 
   friend constexpr auto operator==(const pointer_type lhs,
                                    std::nullptr_t /*rhs*/) -> bool {
-    return lhs._m_dont_use == nullptr;
+    return lhs.unwrap() == nullptr;
   }
 
   friend constexpr auto operator!=(std::nullptr_t /*lhs*/,
                                    const pointer_type rhs) -> bool {
-    return rhs._m_dont_use != nullptr;
+    return rhs.unwrap() != nullptr;
   }
 
   friend constexpr auto operator!=(const pointer_type lhs,
                                    std::nullptr_t /*rhs*/) -> bool {
-    return lhs._m_dont_use != nullptr;
+    return lhs.unwrap() != nullptr;
   }
 };
 
-template <typename Tag, typename T, typename Deleter = std::default_delete<T>>
+template <typename Tag, typename T, typename Deleter>
 class unique_ptr_type : public strong_type<Tag, std::unique_ptr<T, Deleter>>,
                         equality_comparison<unique_ptr_type<Tag, T, Deleter>>,
                         three_way_comparison<unique_ptr_type<Tag, T, Deleter>>,
@@ -753,22 +986,325 @@ class unique_ptr_type : public strong_type<Tag, std::unique_ptr<T, Deleter>>,
   using base_type = strong_type<Tag, std::unique_ptr<T, Deleter>>;
 
 public:
-  using pointer = std::unique_ptr<T, Deleter>::pointer;
+  using pointer =
+      pointer_type<Tag, typename std::unique_ptr<T, Deleter>::pointer>;
   using element_type = std::unique_ptr<T, Deleter>::element_type;
   using deleter_type = Deleter;
 
   constexpr unique_ptr_type(std::nullptr_t) noexcept
       : base_type(std::in_place, nullptr) {}
 
-  explicit unique_ptr_type(pointer p) noexcept : base_type(std::in_place, p) {}
+  CINA_POINTER_CONSTEXPR explicit unique_ptr_type(T* const p) noexcept
+      : base_type(std::in_place, p) {}
 
-  unique_ptr_type(pointer p, const deleter_type& d) noexcept
+  CINA_POINTER_CONSTEXPR explicit unique_ptr_type(const pointer p) noexcept
+      : base_type(std::in_place, p.unwrap()) {}
+
+  CINA_POINTER_CONSTEXPR explicit unique_ptr_type(
+      T* const p, const deleter_type& d) noexcept
     requires(!std::is_reference_v<deleter_type>)
       : base_type(std::in_place, p, d) {}
 
-  unique_ptr_type(pointer p, deleter_type&& d) noexcept
+  CINA_POINTER_CONSTEXPR unique_ptr_type(const pointer p,
+                                         const deleter_type& d) noexcept
     requires(!std::is_reference_v<deleter_type>)
-      : base_type(std::in_place, p, std::move(d)) {}
+      : base_type(std::in_place, p.unwrap(), d) {}
+
+  CINA_POINTER_CONSTEXPR unique_ptr_type(const pointer p,
+                                         deleter_type&& d) noexcept
+    requires(!std::is_reference_v<deleter_type>)
+      : base_type(std::in_place, p.unwrap(), std::move(d)) {}
+
+  CINA_POINTER_CONSTEXPR auto reset(const pointer ptr) noexcept -> void {
+    this->unwrap().reset(ptr.unwrap());
+  }
+
+  CINA_POINTER_CONSTEXPR auto release() noexcept -> pointer {
+    return pointer(this->unwrap().release());
+  }
+
+  CINA_POINTER_CONSTEXPR auto swap(unique_ptr_type& other) noexcept -> void {
+    this->unwrap().swap(other.unwrap());
+  }
+
+  CINA_POINTER_CONSTEXPR auto get() const -> pointer {
+    return pointer(this->unwrap().get());
+  }
+
+  CINA_POINTER_CONSTEXPR auto get_deleter() noexcept -> deleter_type& {
+    return this->unwrap().get_deleter();
+  }
+
+  CINA_POINTER_CONSTEXPR auto get_deleter() const noexcept
+      -> const deleter_type& {
+    return this->unwrap().get_deleter();
+  }
+
+  CINA_POINTER_CONSTEXPR explicit operator bool() const noexcept {
+    return this->unwrap() != nullptr;
+  }
+
+  CINA_POINTER_CONSTEXPR auto operator*() const
+      -> std::add_lvalue_reference_t<element_type> {
+#ifdef CINA_ENFORCE_PRECONDITIONS
+    assert(this->unwrap() != nullptr && "Dereferencing a null unique_ptr_type");
+#endif
+    return *this->unwrap();
+  }
+
+  CINA_POINTER_CONSTEXPR auto operator->() const noexcept -> pointer {
+    return pointer{this->unwrap().operator->()};
+  }
+
+private:
+  friend CINA_POINTER_CONSTEXPR auto
+  operator==(std::nullptr_t /*lhs*/, const unique_ptr_type rhs) noexcept
+      -> bool {
+    return rhs.unwrap() == nullptr;
+  }
+
+  friend CINA_POINTER_CONSTEXPR auto operator==(const unique_ptr_type lhs,
+                                                std::nullptr_t /*rhs*/) noexcept
+      -> bool {
+    return lhs.unwrap() == nullptr;
+  }
+
+  friend CINA_POINTER_CONSTEXPR auto
+  operator<=>(std::nullptr_t /*lhs*/, const unique_ptr_type rhs) noexcept {
+    return rhs.unwrap() <=> nullptr;
+  }
+
+  friend CINA_POINTER_CONSTEXPR auto
+  operator<=>(const unique_ptr_type lhs, std::nullptr_t /*rhs*/) noexcept {
+    return lhs.unwrap() <=> nullptr;
+  }
+};
+
+// --- Container Types ---
+namespace _detail {
+template <typename Itr, typename Tag> class const_iterator;
+
+template <typename Itr, typename Tag> class iterator {
+public:
+  using difference_type = std::iterator_traits<Itr>::difference_type;
+  using value_type = std::iterator_traits<Itr>::value_type;
+  using pointer = std::iterator_traits<Itr>::pointer;
+  using reference = std::iterator_traits<Itr>::reference;
+  using iterator_category = std::iterator_traits<Itr>::iterator_category;
+
+  constexpr explicit iterator(const Itr itr) : m_itr{itr} {}
+
+  constexpr auto operator*() const -> reference { return *m_itr; }
+
+  constexpr auto operator->() const -> pointer { return m_itr.operator->(); }
+
+  constexpr auto operator++() -> iterator& {
+    ++m_itr;
+    return *this;
+  }
+
+  constexpr auto operator++(int) -> iterator {
+    iterator temp{*this};
+    ++(*this);
+    return temp;
+  }
+
+private:
+  friend constexpr auto operator==(const iterator lhs, const iterator rhs)
+      -> bool {
+    return lhs.m_itr == rhs.m_itr;
+  }
+
+  template <typename I, typename T> friend class const_iterator;
+
+  Itr m_itr;
+};
+
+template <typename Itr, typename Tag> class const_iterator {
+public:
+  constexpr explicit const_iterator(const Itr itr) : m_itr{itr} {}
+
+  constexpr const_iterator(const iterator<Itr, Tag> itr) : m_itr{itr.m_itr} {}
+
+private:
+  Itr m_itr;
+};
+
+template <typename C>
+concept has_size = requires(C c) { c.size(); };
+} // namespace _detail
+
+template <typename Tag, cxx_container Container>
+class container_type : public strong_type<Tag, Container>,
+                       equality_comparison<container_type<Tag, Container>>,
+                       three_way_comparison<container_type<Tag, Container>> {
+public:
+  using value_type = Container::value_type;
+  using reference = Container::reference;
+  using const_reference = Container::const_reference;
+  using size_type = Container::size_type;
+  using difference_type = Container::difference_type;
+  using iterator = _detail::iterator<typename Container::iterator, Tag>;
+  using const_iterator =
+      _detail::const_iterator<typename Container::const_iterator, Tag>;
+
+  constexpr auto begin() -> iterator {
+    return iterator(
+        this->_m_do_not_use_only_public_to_make_usable_as_nttp.begin());
+  }
+
+  constexpr auto begin() const -> const_iterator {
+    return const_iterator(this->unwrap().begin());
+  }
+
+  constexpr auto cbegin() const -> const_iterator {
+    return const_iterator(this->unwrap().cbegin());
+  }
+
+  constexpr auto end() -> iterator {
+    return iterator(
+        this->_m_do_not_use_only_public_to_make_usable_as_nttp.end());
+  }
+
+  constexpr auto end() const -> const_iterator {
+    return const_iterator(this->unwrap().end());
+  }
+
+  constexpr auto cend() const -> const_iterator {
+    return const_iterator(this->unwrap().cend());
+  }
+
+  constexpr auto swap(container_type& other) -> void {
+    this->_m_do_not_use_only_public_to_make_usable_as_nttp.swap(
+        other._m_do_not_use_only_public_to_make_usable_as_nttp);
+  }
+
+  constexpr auto size() const -> size_type
+    requires _detail::has_size<Container>
+  {
+    return this->unwrap().size();
+  }
+
+  constexpr auto max_size() const -> size_type {
+    return this->unwrap().max_size();
+  }
+
+  [[nodiscard]] constexpr auto empty() const -> bool {
+    return this->unwrap().empty();
+  }
+};
+
+template <typename Tag, cxx_allocator_aware_container Container>
+class allocator_aware_container_type : public strong_type<Tag, Container> {
+  using base_type = strong_type<Tag, Container>;
+
+public:
+  using allocator_type = typename Container::allocator_type;
+
+  constexpr allocator_aware_container_type(const allocator_type& allocator)
+      : base_type(std::in_place, allocator) {}
+
+  constexpr allocator_aware_container_type(const Container& container,
+                                           const allocator_type& allocator)
+      : base_type(std::in_place, container, allocator) {}
+
+  constexpr allocator_aware_container_type(Container&& container,
+                                           const allocator_type& allocator)
+      : base_type(std::in_place, std::move(container), allocator) {}
+
+  constexpr allocator_aware_container_type(
+      const allocator_aware_container_type& other,
+      const allocator_type& allocator)
+      : base_type(std::in_place, other.unwrap(), allocator) {}
+
+  constexpr allocator_aware_container_type(
+      allocator_aware_container_type&& other, const allocator_type& allocator)
+      : base_type(std::in_place, std::move(other).unwrap(), allocator) {}
+
+  constexpr auto get_allocator() const -> allocator_type {
+    return this->unwrap().get_allocator();
+  }
+};
+
+template <typename Tag, cxx_sequence_container Container>
+class sequence_container_type
+    : public strong_type<Tag, Container>,
+      equality_comparison<sequence_container_type<Tag, Container>>,
+      three_way_comparison<sequence_container_type<Tag, Container>> {
+  using base_type = strong_type<Tag, Container>;
+
+public:
+  using value_type = Container::value_type;
+  using reference = Container::reference;
+  using const_reference = Container::const_reference;
+  using size_type = Container::size_type;
+  using difference_type = Container::difference_type;
+  using iterator = _detail::iterator<typename Container::iterator, Tag>;
+  using const_iterator =
+      _detail::const_iterator<typename Container::const_iterator, Tag>;
+
+  constexpr sequence_container_type() = default;
+
+  constexpr explicit sequence_container_type(const Container& container)
+      : base_type(container) {}
+
+  constexpr explicit sequence_container_type(Container&& container)
+      : base_type(std::move(container)) {}
+
+  constexpr sequence_container_type(const size_type n, const value_type& value)
+      : base_type(std::in_place, n, value) {}
+
+  template <typename InputItr>
+  constexpr sequence_container_type(InputItr first, InputItr last)
+      : base_type(std::in_place, first, last) {}
+
+  constexpr sequence_container_type(std::initializer_list<value_type> il)
+      : base_type(std::in_place, il) {}
+
+  constexpr auto begin() -> iterator {
+    return iterator(
+        this->_m_do_not_use_only_public_to_make_usable_as_nttp.begin());
+  }
+
+  constexpr auto begin() const -> const_iterator {
+    return const_iterator(this->unwrap().begin());
+  }
+
+  constexpr auto cbegin() const -> const_iterator {
+    return const_iterator(this->unwrap().cbegin());
+  }
+
+  constexpr auto end() -> iterator {
+    return iterator(
+        this->_m_do_not_use_only_public_to_make_usable_as_nttp.end());
+  }
+
+  constexpr auto end() const -> const_iterator {
+    return const_iterator(this->unwrap().end());
+  }
+
+  constexpr auto cend() const -> const_iterator {
+    return const_iterator(this->unwrap().cend());
+  }
+
+  constexpr auto swap(sequence_container_type& other) -> void {
+    this->_m_do_not_use_only_public_to_make_usable_as_nttp.swap(
+        other._m_do_not_use_only_public_to_make_usable_as_nttp);
+  }
+
+  constexpr auto size() const -> size_type
+    requires _detail::has_size<Container>
+  {
+    return this->unwrap().size();
+  }
+
+  constexpr auto max_size() const -> size_type {
+    return this->unwrap().max_size();
+  }
+
+  [[nodiscard]] constexpr auto empty() const -> bool {
+    return this->unwrap().empty();
+  }
 };
 
 // --- Type Factory ----
@@ -777,8 +1313,6 @@ public:
 struct no_skills {};
 /// \brief Tag to indicate signed integer type should have bitwise operations
 struct enable_bitwise {};
-/// \brief Tag to indicate a pointer like type
-struct as_pointer {};
 /// \brief Tag to indicate an pointer type with unique ownership semantics.
 struct owning_pointer {};
 /// \brief Tag to indicate a range constraint for bounded integral types
@@ -786,11 +1320,12 @@ struct owning_pointer {};
 /// \tparam Max The maximum value (inclusive) allowed for the integral type.
 template <std::intmax_t Min, std::intmax_t Max> struct range {};
 
+/// \cond
 namespace _detail {
-template <typename Tag, typename T, typename... Args> struct new_type_impl {
-  template <typename U> static constexpr bool dependent_false = false;
+template <typename Tag, typename... Args> struct new_type_impl {
+  template <typename... U> static constexpr bool dependent_false = false;
 
-  static_assert(dependent_false<Tag>,
+  static_assert(dependent_false<Args...>,
                 "Invalid combination of type arguments for cina::new_type");
 };
 
@@ -831,25 +1366,100 @@ template <typename Tag, std::floating_point T> struct new_type_impl<Tag, T> {
   using type = floating_point_type<Tag, T>;
 };
 
-template <typename Tag, typename Ptr>
-  requires std::is_pointer_v<Ptr>
+template <typename Tag, cxx_nullable_pointer Ptr>
 struct new_type_impl<Tag, Ptr> {
   using type = pointer_type<Tag, Ptr>;
 };
 
-template <typename Tag, typename T> struct new_type_impl<Tag, T, as_pointer> {
-  using type = pointer_type<Tag, T>;
-};
-
-template <typename Tag, typename Ptr>
-  requires std::is_pointer_v<Ptr>
+template <typename Tag, cxx_nullable_pointer Ptr>
 struct new_type_impl<Tag, Ptr, owning_pointer> {
   using type = unique_ptr_type<Tag, std::remove_pointer_t<Ptr>>;
 };
+
+template <cxx_allocator_aware_container Container, typename Tag>
+  requires cxx_sequence_container<Container>
+class selected_container_type
+    : public allocator_aware_container_type<Container, Tag>,
+      public sequence_container_type<Container, Tag> {
+public:
+  using allocator_aware_container_type<Container,
+                                       Tag>::allocator_aware_container;
+  using sequence_container_type<Container, Tag>::sequence_container_type;
+};
+
+template <cxx_allocator_aware_container Container, typename Tag>
+struct new_type_impl<Tag, Container> {
+  using type = selected_container_type<Container, Tag>;
+};
+} // namespace _detail
+/// \cond
+
+template <typename Tag, typename... Args>
+using new_type = typename _detail::new_type_impl<Tag, Args...>::type;
+
+namespace _detail {
+template <strong_type_like T, typename... Args> struct subtype_impl {
+  template <typename... U> static constexpr bool dependent_false = false;
+
+  static_assert(dependent_false<Args...>,
+                "Invalid arguments for cina::subtype");
+};
+
+template <strong_type_like T> struct subtype_impl<T> {
+  using type = T;
+};
+
+template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
+          std::intmax_t Max>
+struct subtype_impl<bounded_integral_type<Tag, T, Min, Max>> {
+  using type = bounded_integral_type<Tag, T, Min, Max>;
+};
 } // namespace _detail
 
-template <typename Tag, typename T, typename... Args>
-using new_type = typename _detail::new_type_impl<Tag, T, Args...>::type;
+template <strong_type_like T, typename... Args>
+using subtype = _detail::subtype_impl<T, Args...>::type;
+
+// --- Arithmetic Functions ----
+
+template <arithmetic T> CINA_BASIC_CMATH_CONSTEXPR auto abs(const T x) -> T {
+  return T{std::abs(x.unwrap())};
+}
+
+template <arithmetic T>
+CINA_BASIC_CMATH_CONSTEXPR auto fmod(const T x, const T y) -> T {
+  return T{std::fmod(x.unwrap(), y.unwrap())};
+}
+
+template <arithmetic T>
+CINA_BASIC_CMATH_CONSTEXPR auto remainder(const T x, const T y) -> T {
+  return T{std::remainder(x.unwrap(), y.unwrap())};
+}
+
+template <arithmetic T>
+CINA_BASIC_CMATH_CONSTEXPR auto remquo(const T x, const T y, int* quo) -> T {
+  return T{std::remquo(x.unwrap(), y.unwrap(), quo)};
+}
+
+template <arithmetic T>
+CINA_BASIC_CMATH_CONSTEXPR auto fma(const T x, const T y, const T z) -> T {
+  return T{std::fma(x.unwrap(), y.unwrap(), z.unwrap())};
+}
+
+template <arithmetic T>
+CINA_BASIC_CMATH_CONSTEXPR auto fmax(const T x, const T y) -> T {
+  return T{std::fmax(x.unwrap(), y.unwrap())};
+}
+
+template <arithmetic T>
+CINA_BASIC_CMATH_CONSTEXPR auto fmin(const T x, const T y) -> T {
+  return T{std::fmin(x.unwrap(), y.unwrap())};
+}
+
+template <typename T>
+CINA_BASIC_CMATH_CONSTEXPR auto fdim(const T x, const T y) -> T {
+  return T{std::fdim(x.unwrap(), y.unwrap())};
+}
+
 } // namespace cina
 
 // --- Standard Library Specializations ---
@@ -873,6 +1483,92 @@ struct std::formatter<T> : std::formatter<std::string_view> {
     std::format_to(std::back_inserter(out), "{}", value.unwrap());
     return std::formatter<std::string_view>::format(out, ctx);
   }
+};
+
+template <cina::arithmetic T> struct std::numeric_limits<T> {
+private:
+  using base_type = std::numeric_limits<cina::underlying_type<T>>;
+
+public:
+  constexpr static bool is_specialized = true;
+  constexpr static bool is_signed = base_type::is_signed;
+  constexpr static bool is_integer = base_type::is_integer;
+  constexpr static bool is_exact = base_type::is_exact;
+  constexpr static bool has_infinity = base_type::has_infinity;
+  constexpr static bool has_quiet_NaN = base_type::has_quiet_NaN;
+  constexpr static bool has_signaling_NaN = base_type::has_signaling_NaN;
+  [[deprecated]] constexpr static std::float_denorm_style has_denorm =
+      base_type::has_denorm;
+  constexpr static bool has_denorm_loss = base_type::has_denorm_loss;
+  constexpr static std::float_round_style round_style = base_type::round_style;
+  constexpr static bool is_iec559 = base_type::is_iec559;
+  constexpr static bool is_bounded = base_type::is_bounded;
+  constexpr static bool is_modulo = base_type::is_modulo;
+  constexpr static int digits = base_type::digits;
+  constexpr static int digits10 = base_type::digits10;
+  constexpr static int max_digits10 = base_type::max_digits10;
+  constexpr static int radix = base_type::radix;
+  constexpr static int min_exponent = base_type::min_exponent;
+  constexpr static int min_exponent10 = base_type::min_exponent10;
+  constexpr static int max_exponent = base_type::max_exponent;
+  constexpr static int max_exponent10 = base_type::max_exponent10;
+  constexpr static bool traps = base_type::traps;
+  constexpr static bool tinyness_before = base_type::tinyness_before;
+
+  constexpr static T min() noexcept { return T(base_type::min()); }
+  constexpr static T max() noexcept { return T(base_type::max()); }
+  constexpr static T lowest() noexcept { return T(base_type::lowest()); }
+  constexpr static T epsilon() noexcept { return T(base_type::epsilon()); }
+  constexpr static T round_error() noexcept {
+    return T(base_type::round_error());
+  }
+  constexpr static T infinity() noexcept { return T(base_type::infinity()); }
+  constexpr static T quiet_NaN() noexcept { return T(base_type::quiet_NaN()); }
+  constexpr static T signaling_NaN() noexcept {
+    return T(base_type::signaling_NaN());
+  }
+  constexpr static T denorm_min() noexcept {
+    return T(base_type::denorm_min());
+  }
+};
+
+template <cina::bounded_integral T> struct std::numeric_limits<T> {
+private:
+  using base_type = std::numeric_limits<T>;
+  constexpr static bool is_specialized = true;
+  constexpr static bool is_signed = base_type::is_signed;
+  constexpr static bool is_integer = base_type::is_integer;
+  constexpr static bool is_exact = base_type::is_exact;
+  constexpr static bool has_infinity = base_type::has_infinity;
+  constexpr static bool has_quiet_NaN = base_type::has_quiet_NaN;
+  constexpr static bool has_signaling_NaN = base_type::has_signaling_NaN;
+  [[deprecated]] constexpr static std::float_denorm_style has_denorm =
+      base_type::has_denorm;
+  constexpr static bool has_denorm_loss = base_type::has_denorm_loss;
+  constexpr static std::float_round_style round_style = base_type::round_style;
+  constexpr static bool is_iec559 = base_type::is_iec559;
+  constexpr static bool is_bounded = base_type::is_bounded;
+  constexpr static bool is_modulo = base_type::is_modulo;
+  constexpr static int digits = base_type::digits;
+  constexpr static int digits10 = base_type::digits10;
+  constexpr static int max_digits10 = base_type::max_digits10;
+  constexpr static int radix = base_type::radix;
+  constexpr static int min_exponent = base_type::min_exponent;
+  constexpr static int min_exponent10 = base_type::min_exponent10;
+  constexpr static int max_exponent = base_type::max_exponent;
+  constexpr static int max_exponent10 = base_type::max_exponent10;
+  constexpr static bool traps = base_type::traps;
+  constexpr static bool tinyness_before = base_type::tinyness_before;
+
+  constexpr static T min() noexcept { return T::min; }
+  constexpr static T max() noexcept { return T::max; }
+  constexpr static T lowest() noexcept { return T::min; }
+  constexpr static T epsilon() noexcept { return T::min; }
+  constexpr static T round_error() noexcept { return T::min; }
+  constexpr static T infinity() noexcept { return T::min; }
+  constexpr static T quiet_NaN() noexcept { return T::min; }
+  constexpr static T signaling_NaN() noexcept { return T::min; }
+  constexpr static T denorm_min() noexcept { return T::min; }
 };
 
 #endif
