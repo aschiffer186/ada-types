@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 
 TEST(TestIntegerType, TestCXXProperties) {
-  using int_type = cina::integral_type<struct IntType, int>;
+  using int_type = cina::signed_integral_type<struct IntType, int>;
 
   EXPECT_FALSE(std::is_default_constructible_v<int_type>);
   EXPECT_TRUE(std::is_nothrow_copy_constructible_v<int_type>);
@@ -23,21 +23,50 @@ TEST(TestIntegerType, TestCXXProperties) {
   EXPECT_TRUE(std::copyable<int_type>);
   EXPECT_TRUE(std::totally_ordered<int_type>);
   EXPECT_TRUE(std::three_way_comparable<int_type>);
+
+  EXPECT_FALSE((std::is_convertible_v<int_type, bool>));
 }
 
 TEST(TestIntegerType, TestConstructor) {
-  using int_type = cina::integral_type<struct IntType, int>;
+  using int_type = cina::signed_integral_type<struct IntType, int>;
 
   const int_type i1{42};
   EXPECT_EQ(i1.unwrap(), 42);
 
-  EXPECT_FALSE((std::is_constructible_v<int_type, std::int64_t>));
-  EXPECT_FALSE((std::is_constructible_v<int_type, double>));
-  EXPECT_FALSE((std::is_constructible_v<int_type, std::uint8_t>));
+  EXPECT_FALSE((std::constructible_from<int_type, std::int64_t>));
+  EXPECT_FALSE((std::constructible_from<int_type, double>));
+  EXPECT_FALSE((std::constructible_from<int_type, std::uint8_t>));
+  EXPECT_FALSE((std::constructible_from<int_type, bool>));
+  EXPECT_FALSE((std::constructible_from<int_type, char16_t>));
+  EXPECT_FALSE((std::constructible_from<int_type, char32_t>));
+  EXPECT_FALSE((std::constructible_from<int_type, wchar_t>));
+
+  using int_type2 = cina::signed_integral_type<struct IntType2, int>;
+  EXPECT_FALSE((std::constructible_from<int_type, int_type2>));
+
+  EXPECT_FALSE((std::convertible_to<int, int_type>));
+  EXPECT_FALSE((std::convertible_to<int_type, int>));
+}
+
+TEST(TestIntegerType, TestAssignment) {
+  using int_type1 = cina::signed_integral_type<struct IntType, int>;
+  using int_type2 = cina::signed_integral_type<struct IntType2, int>;
+
+  EXPECT_FALSE((std::assignable_from<int_type1, int_type2>));
+  EXPECT_FALSE((std::assignable_from<int_type1, int>));
+}
+
+TEST(TestIntegerType, TestCinaConcepts) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+  EXPECT_TRUE(cina::strong_type_like<int_type>);
+  EXPECT_TRUE(cina::integral<int_type>);
+  EXPECT_TRUE(cina::arithmetic<int_type>);
+
+  EXPECT_TRUE((std::same_as<cina::underlying_type<int_type>, int>));
 }
 
 TEST(TestIntegerType, TestFormat) {
-  using int_type = cina::integral_type<struct IntType, std::int8_t>;
+  using int_type = cina::signed_integral_type<struct IntType, std::int8_t>;
 
   const std::string str =
       std::format("{}", int_type{static_cast<std::int8_t>(42)});
@@ -45,7 +74,7 @@ TEST(TestIntegerType, TestFormat) {
 }
 
 TEST(TestIntegerType, TestHash) {
-  using int_type = cina::integral_type<struct IntType, int>;
+  using int_type = cina::signed_integral_type<struct IntType, int>;
 
   const int_type i1{42};
 
@@ -54,7 +83,7 @@ TEST(TestIntegerType, TestHash) {
 }
 
 TEST(TestIntegerType, TestEquality) {
-  using int_type = cina::integral_type<struct IntType, int>;
+  using int_type = cina::signed_integral_type<struct IntType, int>;
 
   const int_type i1{42};
   const int_type i2{42};
@@ -63,10 +92,15 @@ TEST(TestIntegerType, TestEquality) {
   EXPECT_EQ(i1, i2);
   EXPECT_NE(i1, i3);
   EXPECT_NE(i2, i3);
+
+  EXPECT_FALSE((std::equality_comparable_with<int_type, int>));
+
+  using int_type2 = cina::signed_integral_type<struct IntType2, int>;
+  EXPECT_FALSE((std::equality_comparable_with<int_type, int_type2>));
 }
 
 TEST(TestIntegerType, TestComparison) {
-  using int_type = cina::integral_type<struct IntType, int>;
+  using int_type = cina::signed_integral_type<struct IntType, int>;
 
   const int_type i1{42};
   const int_type i2{43};
@@ -79,10 +113,17 @@ TEST(TestIntegerType, TestComparison) {
   EXPECT_EQ(i1 <=> i2, std::strong_ordering::less);
   EXPECT_EQ(i2 <=> i1, std::strong_ordering::greater);
   EXPECT_EQ(i1 <=> i1, std::strong_ordering::equal);
+
+  EXPECT_FALSE((std::totally_ordered_with<int_type, int>));
+  EXPECT_FALSE((std::three_way_comparable_with<int_type, int>));
+
+  using int_type2 = cina::signed_integral_type<struct IntType2, int>;
+  EXPECT_FALSE((std::totally_ordered_with<int_type, int_type2>));
+  EXPECT_FALSE((std::three_way_comparable_with<int_type, int_type2>));
 }
 
 TEST(TestIntegerType, TestOutputStream) {
-  using int_type = cina::integral_type<struct IntType, std::int8_t>;
+  using int_type = cina::signed_integral_type<struct IntType, std::int8_t>;
 
   const int_type i1{static_cast<std::int8_t>(42)};
 
@@ -91,13 +132,122 @@ TEST(TestIntegerType, TestOutputStream) {
   EXPECT_STREQ(oss.str().c_str(), "42");
 }
 
+TEST(TestIntegerType, TestAddition) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+
+  int_type i1{42};
+  const int_type i2{10};
+
+  const int_type i3 = i1 += i2;
+  EXPECT_EQ(i1.unwrap(), 52);
+  EXPECT_EQ(i3.unwrap(), 52);
+
+  const int_type i4 = i1 + i2;
+  EXPECT_EQ(i4.unwrap(), 62);
+}
+
+TEST(TestIntegerType, TestSubtraction) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+
+  int_type i1{42};
+  const int_type i2{10};
+
+  const int_type i3 = i1 -= i2;
+  EXPECT_EQ(i1.unwrap(), 32);
+  EXPECT_EQ(i3.unwrap(), 32);
+
+  const int_type i4 = i1 - i2;
+  EXPECT_EQ(i4.unwrap(), 22);
+}
+
+TEST(TestIntegerType, TestMultiplication) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+
+  int_type i1{42};
+  const int_type i2{10};
+
+  const int_type i3 = i1 *= i2;
+  EXPECT_EQ(i1.unwrap(), 420);
+  EXPECT_EQ(i3.unwrap(), 420);
+
+  const int_type i4 = i1 * i2;
+  EXPECT_EQ(i4.unwrap(), 4200);
+}
+
+TEST(TestIntegerType, TestDivision) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+
+  int_type i1{42};
+  const int_type i2{10};
+
+  const int_type i3 = i1 /= i2;
+  EXPECT_EQ(i1.unwrap(), 4);
+  EXPECT_EQ(i3.unwrap(), 4);
+
+  const int_type i4 = i1 / i2;
+  EXPECT_EQ(i4.unwrap(), 0);
+}
+
+TEST(TestIntegerType, TestModulo) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+
+  int_type i1{42};
+  const int_type i2{10};
+
+  const int_type i3 = i1 %= i2;
+  EXPECT_EQ(i1.unwrap(), 2);
+  EXPECT_EQ(i3.unwrap(), 2);
+
+  const int_type i4 = i1 % i2;
+  EXPECT_EQ(i4.unwrap(), 2);
+}
+
+TEST(TestIntegerType, TestNegation) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+
+  const int_type i1{42};
+  const int_type i2 = -i1;
+  EXPECT_EQ(i2.unwrap(), -42);
+}
+
+TEST(TestIntegerType, TestIncrement) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+
+  int_type i1{42};
+
+  const int_type i2 = ++i1;
+  EXPECT_EQ(i1.unwrap(), 43);
+  EXPECT_EQ(i2.unwrap(), 43);
+
+  const int_type i3 = i1++;
+  EXPECT_EQ(i1.unwrap(), 44);
+  EXPECT_EQ(i3.unwrap(), 43);
+}
+
+TEST(TestIntegerType, TestDecrement) {
+  using int_type = cina::signed_integral_type<struct IntType, int>;
+
+  int_type i1{42};
+
+  const int_type i2 = --i1;
+  EXPECT_EQ(i1.unwrap(), 41);
+  EXPECT_EQ(i2.unwrap(), 41);
+
+  const int_type i3 = i1--;
+  EXPECT_EQ(i1.unwrap(), 40);
+  EXPECT_EQ(i3.unwrap(), 41);
+}
+
 TEST(TestIntegerType, TestTypeFactory) {
   using int_type1 = cina::new_type<struct IntType1, std::int8_t>;
 
-  EXPECT_TRUE((
-      std::same_as<int_type1,
-                   cina::integral_type<typename int_type1::tag, std::int8_t>>));
+  EXPECT_TRUE(
+      (std::same_as<int_type1, cina::signed_integral_type<
+                                   typename int_type1::tag, std::int8_t>>));
 
   using int_type2 = cina::new_type<struct IntType2, std::int8_t>;
   EXPECT_FALSE((std::same_as<int_type1, int_type2>));
+
+  using int_type3 = cina::subtype<int_type1>;
+  EXPECT_TRUE((std::same_as<int_type1, int_type3>));
 }

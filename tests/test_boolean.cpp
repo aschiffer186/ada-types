@@ -26,22 +26,31 @@ TEST(TestBoolean, TestCXXProperties) {
   EXPECT_TRUE(std::copyable<boolean_type>);
 }
 
+TEST(TestBoolean, TestCinaConcepts) {
+  using boolean_type = cina::boolean_type<struct BooleanType>;
+  EXPECT_TRUE(cina::strong_type_like<boolean_type>);
+
+  EXPECT_TRUE((std::same_as<cina::underlying_type<boolean_type>, bool>));
+}
+
 TEST(TestBoolean, TestConstructor) {
   using boolean_type = cina::boolean_type<struct BooleanType>;
 
   const boolean_type b1{true};
   EXPECT_TRUE(b1.unwrap());
 
-  using boolean_Type2 = cina::boolean_type<struct BooleanType2>;
-  EXPECT_FALSE((std::constructible_from<boolean_Type2, boolean_type>));
-  EXPECT_FALSE((std::constructible_from<boolean_type, boolean_Type2>));
+  using boolean_type2 = cina::boolean_type<struct BooleanType2>;
+  EXPECT_FALSE((std::constructible_from<boolean_type, boolean_type2>));
+
+  EXPECT_FALSE((std::convertible_to<bool, boolean_type>));
+  EXPECT_FALSE((std::convertible_to<boolean_type, bool>));
 }
 
 TEST(TestBoolean, TestAssignment) {
   using boolean_type1 = cina::boolean_type<struct BooleanType>;
   using boolean_type2 = cina::boolean_type<struct BooleanType2>;
 
-  EXPECT_FALSE((std::is_assignable_v<boolean_type1&, boolean_type2>));
+  EXPECT_FALSE((std::assignable_from<boolean_type1, boolean_type2>));
 }
 
 TEST(TestBoolean, TestFormat) {
@@ -63,15 +72,6 @@ TEST(TestBoolean, TestHash) {
   EXPECT_EQ(hash2, std::hash<bool>{}(false));
 }
 
-TEST(TestBoolean, TestLess) {
-  using boolean_type = cina::boolean_type<struct BooleanType>;
-
-  const boolean_type b1{true};
-  const boolean_type b2{false};
-
-  EXPECT_EQ(b1 < b2, true < false);
-}
-
 TEST(TestBoolean, TestEquality) {
   using boolean_type = cina::boolean_type<struct BooleanType>;
 
@@ -81,6 +81,20 @@ TEST(TestBoolean, TestEquality) {
   EXPECT_EQ(b1, b1);
   EXPECT_NE(b1, b2);
   EXPECT_NE(b2, b1);
+
+  EXPECT_FALSE((std::equality_comparable_with<boolean_type, bool>));
+
+  using boolean_type2 = cina::boolean_type<struct BooleanType2>;
+  EXPECT_FALSE((std::equality_comparable_with<boolean_type, boolean_type2>));
+}
+
+TEST(TestBoolean, TestLess) {
+  using boolean_type = cina::boolean_type<struct BooleanType>;
+
+  const boolean_type b1{true};
+  const boolean_type b2{false};
+
+  EXPECT_EQ(b1 < b2, true < false);
 }
 
 TEST(TestBoolean, TestOutputStream) {

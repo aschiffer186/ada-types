@@ -1,19 +1,20 @@
 #ifndef CINA_HPP
 #define CINA_HPP
 
-#include <cmath> // abs, sqrt, etc.
-#include <concepts>
-#include <format>
-#include <initializer_list>
-#include <limits>      // numeric_limits
-#include <memory>      // unique_ptr
-#include <ostream>     // ostream
-#include <stdexcept>   // runtime_error
-#include <string>      // string
-#include <string_view> // string_view
-#include <type_traits> // remove_cvref_t, other traits
-#include <utility>     // in_place, in_place_t
-#include <version>
+#include <cmath>            // abs, sqrt, etc.
+#include <complex>          // complex
+#include <concepts>         // same_as
+#include <format>           // formatter
+#include <initializer_list> // initializer_list
+#include <limits>           // numeric_limits
+#include <memory>           // unique_ptr
+#include <ostream>          // ostream
+#include <stdexcept>        // runtime_error
+#include <string>           // string
+#include <string_view>      // string_view
+#include <type_traits>      // remove_cvref_t, other traits
+#include <utility>          // in_place, in_place_t
+#include <version>          // version macros
 
 #if defined(__cpp_lib_constexpr_memory) && __cpp_lib_constexpr_memory >= 202202L
 #define CINA_POINTER_CONSTEXPR constexpr
@@ -35,7 +36,6 @@
 
 namespace cina {
 
-// --- Traits and Concepts ---
 // --- C++ Concepts ---
 
 /// \brief Concept modeling that a type supports being written to an output
@@ -133,21 +133,27 @@ concept cxx_sequence_container =
       { v.insert(p, rt) } -> std::same_as<typename C::iterator>;
     };
 
-/// \brief Concept indicating that a conversion from \c From to \c To is
+/// \brief Concept indicating that a conversion between two integer types is
 /// non-narrowing.
 ///
-/// Concept indicating that a conversion from \c From to \c To is
+/// Concept indicating that a conversion between two integer types is
 /// non-narrowing. This concept is only modeled if:
 /// 1. Both \c From and \c To are integral types of the same signedness, and
 ///    the size of \c From is less than or equal to the size of \c To.
-/// 2. \c From is an integral type and \c To is a floating-point type.
-/// 3. Both \c From and \c To are floating-point types, and the size of \c
-/// From
-///    is less than or equal to the size of \c To
 template <typename From, typename To>
-concept non_narrowing_conversion =
-    (std::integral<From> && std::integral<To> && sizeof(From) <= sizeof(To) &&
-     std::is_signed_v<From> == std::is_signed_v<To>) ||
+concept non_narrowing_integer_conversion =
+    std::integral<From> && std::integral<To> && sizeof(From) <= sizeof(To) &&
+    std::is_signed_v<From> == std::is_signed_v<To>;
+
+/// \brief Concept indicating that a floating-point conversion is non-narrowing.
+///
+/// Concpet indicating that a floating-point conversion is non-narrowing. This
+/// concept is modeled if
+/// 1. \c From is an integral type and \c To is a floating-point type.
+/// 2. \c From and \c To are both floating-point types and \c sizeof(From) <= \c
+/// sizeof(To).
+template <typename From, typename To>
+concept non_narrowing_floating_point_conversion =
     (std::integral<From> && std::floating_point<To>) ||
     (std::floating_point<From> && std::floating_point<To> &&
      sizeof(From) <= sizeof(To));
@@ -158,11 +164,14 @@ template <typename Tag, typename UnderlyingType> class strong_type;
 
 template <typename Tag> class boolean_type;
 
-template <typename Tag, cxx_arithmetic_integral T> class integral_type;
+template <typename Tag, cxx_arithmetic_integral T> class signed_integral_type;
 
-template <typename Tag, cxx_arithmetic_integral T> class bitwise_integral_type;
+template <typename Tag, cxx_arithmetic_integral T>
+class bitwise_signed_integral_type;
 
 template <typename Tag, std::floating_point T> class floating_point_type;
+
+template <typename Tag, std::floating_point T> class complex_type;
 
 template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
           std::intmax_t Max>
@@ -180,6 +189,7 @@ class allocator_aware_container_type;
 
 template <typename Tag, cxx_sequence_container Container>
 class sequence_container_type;
+
 // --- Cina Concepts ---
 
 /// \cond
@@ -222,12 +232,13 @@ namespace _detail {
 template <typename> constexpr bool is_integral_type = false;
 
 template <typename Tag, cxx_arithmetic_integral T>
-constexpr bool is_integral_type<integral_type<Tag, T>> = true;
+constexpr bool is_integral_type<signed_integral_type<Tag, T>> = true;
 
 template <typename> constexpr bool is_bitwise_integral_type = false;
 
 template <typename Tag, cxx_arithmetic_integral T>
-constexpr bool is_bitwise_integral_type<bitwise_integral_type<Tag, T>> = true;
+constexpr bool is_bitwise_integral_type<bitwise_signed_integral_type<Tag, T>> =
+    true;
 
 template <typename> constexpr bool is_floating_point_type = false;
 
@@ -240,21 +251,42 @@ template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
           std::intmax_t Max>
 constexpr bool is_bounded_integral<bounded_integral_type<Tag, T, Min, Max>> =
     true;
+
+template <typename> constexpr bool is_complex_type = false;
+
+template <typename Tag, std::floating_point T>
+constexpr bool is_complex_type<complex_type<Tag, T>> = true;
 } // namespace _detail
 /// \endcond
 
+/// \brief Concept modeling that a type is an instantiation of \c
+/// cina::integral_type or \c cina::bitwise_integral_type.
+///
+/// \tparam T The type to check.
 template <typename T>
 concept integral = _detail::is_integral_type<std::remove_cvref_t<T>> ||
                    _detail::is_bitwise_integral_type<std::remove_cvref_t<T>>;
 
+/// \brief Concept modeling that a type is an instantiation of \c
+/// cina::bounded_integral_type.
+///
+/// \tparam T The type to check.
 template <typename T>
 concept bounded_integral = _detail::is_bounded_integral<std::remove_cvref_t<T>>;
+
+template <typename T, std::intmax_t Min, std::intmax_t Max>
+concept integer_in_range =
+    bounded_integral<T> && T::min.unwrap() >= Min && T::max.unwrap() <= Max;
+
 template <typename T>
 concept floating_point =
     _detail::is_floating_point_type<std::remove_cvref_t<T>>;
 
 template <typename T>
 concept arithmetic = integral<T> || floating_point<T> || bounded_integral<T>;
+
+template <typename T>
+concept complex = _detail::is_complex_type<std::remove_cvref_t<T>>;
 
 // --- Custom Exceptions ---
 
@@ -307,10 +339,11 @@ namespace _detail {
 template <typename> constexpr bool is_int8_type = false;
 
 template <typename Tag>
-constexpr bool is_int8_type<integral_type<Tag, std::int8_t>> = true;
+constexpr bool is_int8_type<signed_integral_type<Tag, std::int8_t>> = true;
 
 template <typename Tag>
-constexpr bool is_int8_type<bitwise_integral_type<Tag, std::int8_t>> = true;
+constexpr bool is_int8_type<bitwise_signed_integral_type<Tag, std::int8_t>> =
+    true;
 } // namespace _detail
 /// \endcond
 
@@ -484,7 +517,7 @@ template <typename Derived> struct bitwise_shift {
 
   friend constexpr auto operator>>(const Derived& lhs,
                                    const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() >> rhs);
+    return Derived(lhs.unwrap() >> rhs.unwrap());
   }
 
   friend constexpr auto operator>>=(Derived& lhs, const Derived& rhs) noexcept
@@ -686,18 +719,18 @@ private:
 /// \tparam Tag A unique tag type to distinguish different integral types.
 /// \tparam T The underlying integral type.
 template <typename Tag, cxx_arithmetic_integral T>
-class integral_type : public strong_type<Tag, T>,
-                      equality_comparison<integral_type<Tag, T>>,
-                      three_way_comparison<integral_type<Tag, T>>,
-                      output_stream<integral_type<Tag, T>>,
-                      addition<integral_type<Tag, T>>,
-                      subtraction<integral_type<Tag, T>>,
-                      multiplication<integral_type<Tag, T>>,
-                      division<integral_type<Tag, T>>,
-                      modulo<integral_type<Tag, T>>,
-                      negation<integral_type<Tag, T>>,
-                      increment<integral_type<Tag, T>>,
-                      decrement<integral_type<Tag, T>> {
+class signed_integral_type : public strong_type<Tag, T>,
+                             equality_comparison<signed_integral_type<Tag, T>>,
+                             three_way_comparison<signed_integral_type<Tag, T>>,
+                             output_stream<signed_integral_type<Tag, T>>,
+                             addition<signed_integral_type<Tag, T>>,
+                             subtraction<signed_integral_type<Tag, T>>,
+                             multiplication<signed_integral_type<Tag, T>>,
+                             division<signed_integral_type<Tag, T>>,
+                             modulo<signed_integral_type<Tag, T>>,
+                             negation<signed_integral_type<Tag, T>>,
+                             increment<signed_integral_type<Tag, T>>,
+                             decrement<signed_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
@@ -710,63 +743,64 @@ public:
   ///
   /// \tparam U The type of the value to construct the \c integral_type from.
   /// \param value The value to construct the \c integral_type from.
-  template <typename U>
-    requires(!strong_type_like<U> && non_narrowing_conversion<U, T>)
-  constexpr explicit integral_type(const U value) noexcept
+  template <cxx_arithmetic_integral U>
+    requires non_narrowing_integer_conversion<U, T>
+  constexpr explicit signed_integral_type(const U value) noexcept
       : base_type(static_cast<T>(value)) {}
 };
 
 template <typename Tag, cxx_arithmetic_integral T>
-class bitwise_integral_type
+class bitwise_signed_integral_type
     : public strong_type<Tag, T>,
-      equality_comparison<bitwise_integral_type<Tag, T>>,
-      three_way_comparison<bitwise_integral_type<Tag, T>>,
-      output_stream<bitwise_integral_type<Tag, T>>,
-      addition<bitwise_integral_type<Tag, T>>,
-      subtraction<bitwise_integral_type<Tag, T>>,
-      multiplication<bitwise_integral_type<Tag, T>>,
-      division<bitwise_integral_type<Tag, T>>,
-      modulo<bitwise_integral_type<Tag, T>>,
-      negation<bitwise_integral_type<Tag, T>>,
-      increment<bitwise_integral_type<Tag, T>>,
-      decrement<bitwise_integral_type<Tag, T>>,
-      bitwise_and<bitwise_integral_type<Tag, T>>,
-      bitwise_or<bitwise_integral_type<Tag, T>>,
-      bitwise_xor<bitwise_integral_type<Tag, T>>,
-      bitwise_not<bitwise_integral_type<Tag, T>>,
-      bitwise_shift<bitwise_integral_type<Tag, T>> {
+      equality_comparison<bitwise_signed_integral_type<Tag, T>>,
+      three_way_comparison<bitwise_signed_integral_type<Tag, T>>,
+      output_stream<bitwise_signed_integral_type<Tag, T>>,
+      addition<bitwise_signed_integral_type<Tag, T>>,
+      subtraction<bitwise_signed_integral_type<Tag, T>>,
+      multiplication<bitwise_signed_integral_type<Tag, T>>,
+      division<bitwise_signed_integral_type<Tag, T>>,
+      modulo<bitwise_signed_integral_type<Tag, T>>,
+      negation<bitwise_signed_integral_type<Tag, T>>,
+      increment<bitwise_signed_integral_type<Tag, T>>,
+      decrement<bitwise_signed_integral_type<Tag, T>>,
+      bitwise_and<bitwise_signed_integral_type<Tag, T>>,
+      bitwise_or<bitwise_signed_integral_type<Tag, T>>,
+      bitwise_xor<bitwise_signed_integral_type<Tag, T>>,
+      bitwise_not<bitwise_signed_integral_type<Tag, T>>,
+      bitwise_shift<bitwise_signed_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
   template <typename U>
-    requires non_narrowing_conversion<U, T>
-  constexpr explicit bitwise_integral_type(const U value) noexcept
+    requires non_narrowing_integer_conversion<U, T>
+  constexpr explicit bitwise_signed_integral_type(const U value) noexcept
       : base_type(static_cast<T>(value)) {}
 };
 
 template <typename Tag, cxx_unsigned_integral T>
-struct unsigned_integral_type : public strong_type<Tag, T>,
-                                equality_comparison<integral_type<Tag, T>>,
-                                three_way_comparison<integral_type<Tag, T>>,
-                                output_stream<integral_type<Tag, T>>,
-                                addition<integral_type<Tag, T>>,
-                                subtraction<integral_type<Tag, T>>,
-                                multiplication<integral_type<Tag, T>>,
-                                division<integral_type<Tag, T>>,
-                                modulo<integral_type<Tag, T>>,
-                                negation<integral_type<Tag, T>>,
-                                increment<integral_type<Tag, T>>,
-                                decrement<integral_type<Tag, T>>,
-                                bitwise_and<unsigned_integral_type<Tag, T>>,
-                                bitwise_or<unsigned_integral_type<Tag, T>>,
-                                bitwise_xor<unsigned_integral_type<Tag, T>>,
-                                bitwise_not<unsigned_integral_type<Tag, T>>,
-                                bitwise_shift<unsigned_integral_type<Tag, T>> {
+struct unsigned_integral_type
+    : public strong_type<Tag, T>,
+      equality_comparison<signed_integral_type<Tag, T>>,
+      three_way_comparison<signed_integral_type<Tag, T>>,
+      output_stream<signed_integral_type<Tag, T>>,
+      addition<signed_integral_type<Tag, T>>,
+      subtraction<signed_integral_type<Tag, T>>,
+      multiplication<signed_integral_type<Tag, T>>,
+      division<signed_integral_type<Tag, T>>,
+      modulo<signed_integral_type<Tag, T>>,
+      negation<signed_integral_type<Tag, T>>,
+      increment<signed_integral_type<Tag, T>>,
+      decrement<signed_integral_type<Tag, T>>,
+      bitwise_and<unsigned_integral_type<Tag, T>>,
+      bitwise_or<unsigned_integral_type<Tag, T>>,
+      bitwise_xor<unsigned_integral_type<Tag, T>>,
+      bitwise_not<unsigned_integral_type<Tag, T>>,
+      bitwise_shift<unsigned_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
   template <typename U>
-    requires non_narrowing_conversion<U, T>
+    requires non_narrowing_integer_conversion<U, T>
   constexpr explicit unsigned_integral_type(const U value) noexcept
       : base_type(static_cast<T>(value)) {}
 };
@@ -787,7 +821,7 @@ class floating_point_type : strong_type<Tag, T>,
 
 public:
   template <typename U>
-    requires non_narrowing_conversion<U, T>
+    requires non_narrowing_floating_point_conversion<U, T>
   constexpr explicit floating_point_type(const U value) noexcept
       : base_type(static_cast<T>(value)) {}
 
@@ -918,6 +952,51 @@ public:
         }
       }
     }
+  }
+
+  template <typename U, std::intmax_t OtherMin, std::intmax_t OtherMax>
+  constexpr auto
+  operator=(const bounded_integral_type<Tag, U, OtherMin, OtherMax> value)
+      -> bounded_integral_type& {
+    bounded_integral_type temp(value);
+    this->_m_do_not_use_only_public_to_make_usable_as_nttp = temp.unwrap();
+    return *this;
+  }
+};
+
+template <typename Tag, std::floating_point T>
+class complex_type : public strong_type<Tag, std::complex<T>>,
+                     output_stream<complex_type<Tag, T>>,
+                     addition<complex_type<Tag, T>>,
+                     subtraction<complex_type<Tag, T>>,
+                     multiplication<complex_type<Tag, T>>,
+                     division<complex_type<Tag, T>>,
+                     negation<complex_type<Tag, T>> {
+  using base_type = strong_type<Tag, std::complex<T>>;
+
+  struct real_tag : Tag {};
+  struct imag_tag : Tag {};
+
+public:
+  using real_part = floating_point_type<real_tag, T>;
+  using imaginary_part = floating_point_type<imag_tag, T>;
+
+  template <typename U1, typename U2>
+    requires non_narrowing_floating_point_conversion<U1, T> &&
+             non_narrowing_floating_point_conversion<U2, T>
+  constexpr complex_type(const U1 real, const U2 imag = T())
+      : base_type(std::in_place, real, imag) {}
+
+  constexpr complex_type(const real_part real,
+                         const imaginary_part imag = imaginary_part{0.0})
+      : base_type(std::in_place, real.unwrap(), imag.unwrap()) {}
+
+  constexpr auto real() const -> real_part {
+    return real_part{this->unwrap().real()};
+  }
+
+  constexpr auto imag() const -> imaginary_part {
+    return imaginary_part{this->unwrap().imag()};
   }
 };
 
@@ -1344,12 +1423,12 @@ template <typename Tag> struct new_type_impl<Tag, bool> {
 
 template <typename Tag, cxx_arithmetic_integral T>
 struct new_type_impl<Tag, T> {
-  using type = integral_type<Tag, T>;
+  using type = signed_integral_type<Tag, T>;
 };
 
 template <typename Tag, cxx_arithmetic_integral T>
 struct new_type_impl<Tag, T, enable_bitwise> {
-  using type = bitwise_integral_type<Tag, T>;
+  using type = bitwise_signed_integral_type<Tag, T>;
 };
 
 template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
@@ -1364,6 +1443,18 @@ template <typename Tag, cxx_unsigned_integral T> struct new_type_impl<Tag, T> {
 
 template <typename Tag, std::floating_point T> struct new_type_impl<Tag, T> {
   using type = floating_point_type<Tag, T>;
+};
+
+template <typename Tag> struct new_type_impl<Tag, std::complex<float>> {
+  using type = complex_type<Tag, float>;
+};
+
+template <typename Tag> struct new_type_impl<Tag, std::complex<double>> {
+  using type = complex_type<Tag, double>;
+};
+
+template <typename Tag> struct new_type_impl<Tag, std::complex<long double>> {
+  using type = complex_type<Tag, long double>;
 };
 
 template <typename Tag, cxx_nullable_pointer Ptr>
@@ -1425,6 +1516,22 @@ template <arithmetic T> CINA_BASIC_CMATH_CONSTEXPR auto abs(const T x) -> T {
   return T{std::abs(x.unwrap())};
 }
 
+template <complex T> auto abs(const T& z) -> typename T::real_part {
+  return typename T::real_part{std::abs(z.unwrap())};
+}
+
+template <arithmetic T> constexpr auto real(const T x) -> T { return x; }
+
+template <complex T> auto real(const T& z) -> typename T::real_part {
+  return z.real();
+}
+
+template <arithmetic T> constexpr auto imag(const T /*x*/) -> T { return T{0}; }
+
+template <complex T> auto imag(const T& z) -> typename T::imaginary_part {
+  return z.imag();
+}
+
 template <arithmetic T>
 CINA_BASIC_CMATH_CONSTEXPR auto fmod(const T x, const T y) -> T {
   return T{std::fmod(x.unwrap(), y.unwrap())};
@@ -1440,9 +1547,11 @@ CINA_BASIC_CMATH_CONSTEXPR auto remquo(const T x, const T y, int* quo) -> T {
   return T{std::remquo(x.unwrap(), y.unwrap(), quo)};
 }
 
-template <arithmetic T>
-CINA_BASIC_CMATH_CONSTEXPR auto fma(const T x, const T y, const T z) -> T {
-  return T{std::fma(x.unwrap(), y.unwrap(), z.unwrap())};
+template <arithmetic Res>
+CINA_BASIC_CMATH_CONSTEXPR auto fma(const arithmetic auto x,
+                                    const arithmetic auto y,
+                                    const arithmetic auto z) -> Res {
+  return Res{std::fma(x.unwrap(), y.unwrap(), z.unwrap())};
 }
 
 template <arithmetic T>
@@ -1458,6 +1567,66 @@ CINA_BASIC_CMATH_CONSTEXPR auto fmin(const T x, const T y) -> T {
 template <typename T>
 CINA_BASIC_CMATH_CONSTEXPR auto fdim(const T x, const T y) -> T {
   return T{std::fdim(x.unwrap(), y.unwrap())};
+}
+
+template <floating_point T> auto nan(const char* arg) -> T {
+  return T{std::nan(arg)};
+}
+
+template <arithmetic T>
+constexpr auto lerp(const T a, const T b, const T t) noexcept -> T {
+  return std::lerp(a.unwrap(), b.unwrap(), t.unwrap());
+}
+
+template <arithmetic T> CINA_CMATH_CONSTEXPR auto exp(const T x) -> T {
+  return T{std::exp(x.unwrap())};
+}
+
+template <arithmetic T> CINA_CMATH_CONSTEXPR auto exp2(T x) -> T {
+  return T{std::exp2(x.unwrap())};
+}
+
+template <arithmetic T> CINA_CMATH_CONSTEXPR auto expm1(T x) -> T {
+  return T{std::expm1(x.unwrap())};
+}
+
+template <arithmetic T> CINA_CMATH_CONSTEXPR auto log(const T x) -> T {
+  return T{std::log(x.unwrap())};
+}
+
+template <arithmetic T> CINA_CMATH_CONSTEXPR auto log10(const T x) -> T {
+  return T{std::log10(x.unwrap())};
+}
+
+template <arithmetic T> CINA_CMATH_CONSTEXPR auto log2(const T x) -> T {
+  return T{std::log2(x.unwrap())};
+}
+
+template <arithmetic Exp>
+CINA_CMATH_CONSTEXPR auto pow(const arithmetic auto base,
+                              const arithmetic auto power) -> Exp {
+  return Exp{std::pow(base.unwrap(), power.unwrap())};
+}
+
+template <arithmetic T> CINA_CMATH_CONSTEXPR auto sqrt(const T x) -> T {
+  return T{std::sqrt(x.unwrap())};
+}
+
+template <arithmetic T> CINA_CMATH_CONSTEXPR auto cbrt(const T x) -> T {
+  return T{std::cbrt(x.unwrap())};
+}
+
+template <typename Res>
+CINA_CMATH_CONSTEXPR auto hypot(const arithmetic auto x,
+                                const arithmetic auto y) -> Res {
+  return Res{std::hypot(x.unwrap(), y.unwrap())};
+}
+
+template <typename Res>
+CINA_CMATH_CONSTEXPR auto hypot(const arithmetic auto x,
+                                const arithmetic auto y,
+                                const arithmetic auto z) -> Res {
+  return Res{std::hypot(x.unwrap(), y.unwrap(), z.unwrap())};
 }
 
 } // namespace cina
