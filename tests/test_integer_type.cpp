@@ -251,3 +251,16 @@ TEST(TestIntegerType, TestTypeFactory) {
   using int_type3 = cina::subtype<int_type1>;
   EXPECT_TRUE((std::same_as<int_type1, int_type3>));
 }
+
+namespace {
+using nttp_type = cina::new_type<struct NTTP, int>;
+
+template <nttp_type I> struct S {
+  static constexpr nttp_type value = I;
+};
+} // namespace
+
+TEST(TestIntegerType, TestNTTP) {
+  S<nttp_type{1}> s;
+  EXPECT_EQ(s.value.unwrap(), 1);
+}

@@ -163,3 +163,16 @@ TEST(TestBoolean, TestTypeFactory) {
   using boolean_type2 = cina::subtype<boolean_type>;
   EXPECT_TRUE((std::same_as<boolean_type2, boolean_type>));
 }
+
+namespace {
+using boolean_nttp = cina::new_type<struct NTTP, bool>;
+
+template <boolean_nttp B> struct S {
+  static constexpr auto value = B;
+};
+} // namespace
+
+TEST(TestBoolean, TestNTTP) {
+  S<boolean_nttp{false}> s;
+  EXPECT_FALSE(s.value.unwrap());
+}

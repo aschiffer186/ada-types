@@ -532,7 +532,8 @@ template <typename...> constexpr bool dependent_false = false;
 }
 
 template <typename Tag, typename UnderlyingType>
-class strong_type : equality_comparison<strong_type<Tag, UnderlyingType>> {
+class strong_type
+    : public equality_comparison<strong_type<Tag, UnderlyingType>> {
 public:
   /// Type alias for the underlying type.
   using underlying_type = UnderlyingType;
@@ -663,9 +664,9 @@ public:
 /// \tparam Tag A unique tag type to distinguish different boolean types.
 template <typename Tag>
 class boolean_type : public strong_type<Tag, bool>,
-                     equality_comparison<boolean_type<Tag>>,
-                     less<boolean_type<Tag>>,
-                     output_stream<boolean_type<Tag>> {
+                     public equality_comparison<boolean_type<Tag>>,
+                     public less<boolean_type<Tag>>,
+                     public output_stream<boolean_type<Tag>> {
 
   using base_type = strong_type<Tag, bool>;
 
@@ -719,18 +720,19 @@ private:
 /// \tparam Tag A unique tag type to distinguish different integral types.
 /// \tparam T The underlying integral type.
 template <typename Tag, cxx_arithmetic_integral T>
-class signed_integral_type : public strong_type<Tag, T>,
-                             equality_comparison<signed_integral_type<Tag, T>>,
-                             three_way_comparison<signed_integral_type<Tag, T>>,
-                             output_stream<signed_integral_type<Tag, T>>,
-                             addition<signed_integral_type<Tag, T>>,
-                             subtraction<signed_integral_type<Tag, T>>,
-                             multiplication<signed_integral_type<Tag, T>>,
-                             division<signed_integral_type<Tag, T>>,
-                             modulo<signed_integral_type<Tag, T>>,
-                             negation<signed_integral_type<Tag, T>>,
-                             increment<signed_integral_type<Tag, T>>,
-                             decrement<signed_integral_type<Tag, T>> {
+class signed_integral_type
+    : public strong_type<Tag, T>,
+      public equality_comparison<signed_integral_type<Tag, T>>,
+      public three_way_comparison<signed_integral_type<Tag, T>>,
+      public output_stream<signed_integral_type<Tag, T>>,
+      public addition<signed_integral_type<Tag, T>>,
+      public subtraction<signed_integral_type<Tag, T>>,
+      public multiplication<signed_integral_type<Tag, T>>,
+      public division<signed_integral_type<Tag, T>>,
+      public modulo<signed_integral_type<Tag, T>>,
+      public negation<signed_integral_type<Tag, T>>,
+      public increment<signed_integral_type<Tag, T>>,
+      public decrement<signed_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
@@ -752,22 +754,22 @@ public:
 template <typename Tag, cxx_arithmetic_integral T>
 class bitwise_signed_integral_type
     : public strong_type<Tag, T>,
-      equality_comparison<bitwise_signed_integral_type<Tag, T>>,
-      three_way_comparison<bitwise_signed_integral_type<Tag, T>>,
-      output_stream<bitwise_signed_integral_type<Tag, T>>,
-      addition<bitwise_signed_integral_type<Tag, T>>,
-      subtraction<bitwise_signed_integral_type<Tag, T>>,
-      multiplication<bitwise_signed_integral_type<Tag, T>>,
-      division<bitwise_signed_integral_type<Tag, T>>,
-      modulo<bitwise_signed_integral_type<Tag, T>>,
-      negation<bitwise_signed_integral_type<Tag, T>>,
-      increment<bitwise_signed_integral_type<Tag, T>>,
-      decrement<bitwise_signed_integral_type<Tag, T>>,
-      bitwise_and<bitwise_signed_integral_type<Tag, T>>,
-      bitwise_or<bitwise_signed_integral_type<Tag, T>>,
-      bitwise_xor<bitwise_signed_integral_type<Tag, T>>,
-      bitwise_not<bitwise_signed_integral_type<Tag, T>>,
-      bitwise_shift<bitwise_signed_integral_type<Tag, T>> {
+      public equality_comparison<bitwise_signed_integral_type<Tag, T>>,
+      public three_way_comparison<bitwise_signed_integral_type<Tag, T>>,
+      public output_stream<bitwise_signed_integral_type<Tag, T>>,
+      public addition<bitwise_signed_integral_type<Tag, T>>,
+      public subtraction<bitwise_signed_integral_type<Tag, T>>,
+      public multiplication<bitwise_signed_integral_type<Tag, T>>,
+      public division<bitwise_signed_integral_type<Tag, T>>,
+      public modulo<bitwise_signed_integral_type<Tag, T>>,
+      public negation<bitwise_signed_integral_type<Tag, T>>,
+      public increment<bitwise_signed_integral_type<Tag, T>>,
+      public decrement<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_and<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_or<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_xor<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_not<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_shift<bitwise_signed_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
@@ -780,22 +782,22 @@ public:
 template <typename Tag, cxx_unsigned_integral T>
 struct unsigned_integral_type
     : public strong_type<Tag, T>,
-      equality_comparison<signed_integral_type<Tag, T>>,
-      three_way_comparison<signed_integral_type<Tag, T>>,
-      output_stream<signed_integral_type<Tag, T>>,
-      addition<signed_integral_type<Tag, T>>,
-      subtraction<signed_integral_type<Tag, T>>,
-      multiplication<signed_integral_type<Tag, T>>,
-      division<signed_integral_type<Tag, T>>,
-      modulo<signed_integral_type<Tag, T>>,
-      negation<signed_integral_type<Tag, T>>,
-      increment<signed_integral_type<Tag, T>>,
-      decrement<signed_integral_type<Tag, T>>,
-      bitwise_and<unsigned_integral_type<Tag, T>>,
-      bitwise_or<unsigned_integral_type<Tag, T>>,
-      bitwise_xor<unsigned_integral_type<Tag, T>>,
-      bitwise_not<unsigned_integral_type<Tag, T>>,
-      bitwise_shift<unsigned_integral_type<Tag, T>> {
+      public equality_comparison<signed_integral_type<Tag, T>>,
+      public three_way_comparison<signed_integral_type<Tag, T>>,
+      public output_stream<signed_integral_type<Tag, T>>,
+      public addition<signed_integral_type<Tag, T>>,
+      public subtraction<signed_integral_type<Tag, T>>,
+      public multiplication<signed_integral_type<Tag, T>>,
+      public division<signed_integral_type<Tag, T>>,
+      public modulo<signed_integral_type<Tag, T>>,
+      public negation<signed_integral_type<Tag, T>>,
+      public increment<signed_integral_type<Tag, T>>,
+      public decrement<signed_integral_type<Tag, T>>,
+      public bitwise_and<unsigned_integral_type<Tag, T>>,
+      public bitwise_or<unsigned_integral_type<Tag, T>>,
+      public bitwise_xor<unsigned_integral_type<Tag, T>>,
+      public bitwise_not<unsigned_integral_type<Tag, T>>,
+      public bitwise_shift<unsigned_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
@@ -806,17 +808,18 @@ public:
 };
 
 template <typename Tag, std::floating_point T>
-class floating_point_type : strong_type<Tag, T>,
-                            equality_comparison<floating_point_type<Tag, T>>,
-                            three_way_comparison<floating_point_type<Tag, T>>,
-                            output_stream<floating_point_type<Tag, T>>,
-                            addition<floating_point_type<Tag, T>>,
-                            subtraction<floating_point_type<Tag, T>>,
-                            multiplication<floating_point_type<Tag, T>>,
-                            division<floating_point_type<Tag, T>>,
-                            negation<floating_point_type<Tag, T>>,
-                            increment<floating_point_type<Tag, T>>,
-                            decrement<floating_point_type<Tag, T>> {
+class floating_point_type
+    : public strong_type<Tag, T>,
+      public equality_comparison<floating_point_type<Tag, T>>,
+      public three_way_comparison<floating_point_type<Tag, T>>,
+      public output_stream<floating_point_type<Tag, T>>,
+      public addition<floating_point_type<Tag, T>>,
+      public subtraction<floating_point_type<Tag, T>>,
+      public multiplication<floating_point_type<Tag, T>>,
+      public division<floating_point_type<Tag, T>>,
+      public negation<floating_point_type<Tag, T>>,
+      public increment<floating_point_type<Tag, T>>,
+      public decrement<floating_point_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:

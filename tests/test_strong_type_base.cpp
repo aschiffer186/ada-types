@@ -19,7 +19,25 @@ TEST(TestStrongTypeBase, TestCXXProperties) {
   EXPECT_FALSE(std::three_way_comparable<type>);
 }
 
-TEST(TestStrongTypeBase, TestConstructor) {}
+TEST(TestStrongTypeBase, TestConstructor) {
+  using type = cina::strong_type<struct Tag, std::string>;
+
+  type t1{};
+  EXPECT_EQ(t1.unwrap(), std::string{});
+
+  const std::string str = "hello world";
+  type t2{str};
+  EXPECT_STREQ(t2.unwrap().c_str(), "hello world");
+
+  type t3(std::string{"hello world"});
+  EXPECT_STREQ(t3.unwrap().c_str(), "hello world");
+
+  type t4(std::in_place, 3, 'h');
+  EXPECT_STREQ(t4.unwrap().c_str(), "hhh");
+
+  type t5(std::in_place, {'h', 'e', 'l', 'l', 'o'}, std::allocator<char>{});
+  EXPECT_STREQ(t5.unwrap().c_str(), "hello");
+}
 
 TEST(TestStrongTypeBase, TestUnderlyingType) {
   using type = cina::strong_type<struct Tag, int>;

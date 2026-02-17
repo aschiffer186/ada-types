@@ -312,3 +312,16 @@ TEST(TestBitwiseIntegralType, TestTypeFactory) {
   using int_type3 = cina::subtype<int_type1>;
   EXPECT_TRUE((std::same_as<int_type1, int_type3>));
 }
+
+namespace {
+using nttp_type = cina::new_type<struct NTTP, int, cina::enable_bitwise>;
+
+template <nttp_type I> struct S {
+  static constexpr nttp_type value = I;
+};
+} // namespace
+
+TEST(TestBitwiseIntegralType, TestNTTP) {
+  S<nttp_type{1}> s;
+  EXPECT_EQ(s.value.unwrap(), 1);
+}
