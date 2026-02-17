@@ -540,6 +540,8 @@ public:
   /// Type alias for the tag type.
   using tag = Tag;
 
+  template <typename NewTag> using rebind = strong_type<NewTag, UnderlyingType>;
+
   /// \brief Default constructor.
   ///
   /// Default initializes the underlying value of the \c strong_type.
@@ -671,6 +673,8 @@ class boolean_type : public strong_type<Tag, bool>,
   using base_type = strong_type<Tag, bool>;
 
 public:
+  template <typename NewTag> using rebind = boolean_type<NewTag>;
+
   /// \brief Constructor
   ///
   /// Initializes the underlying boolean value of the \c boolean_type.
@@ -736,6 +740,8 @@ class signed_integral_type
   using base_type = strong_type<Tag, T>;
 
 public:
+  template <typename NewTag> using rebind = signed_integral_type<NewTag, T>;
+
   /// \brief Constructor
   ///
   /// Constructs a \c integral_type from the specified value.
@@ -773,6 +779,9 @@ class bitwise_signed_integral_type
   using base_type = strong_type<Tag, T>;
 
 public:
+  template <typename NewTag>
+  using rebind = bitwise_signed_integral_type<NewTag, T>;
+
   template <typename U>
     requires non_narrowing_integer_conversion<U, T>
   constexpr explicit bitwise_signed_integral_type(const U value) noexcept
@@ -801,6 +810,8 @@ struct unsigned_integral_type
   using base_type = strong_type<Tag, T>;
 
 public:
+  template <typename NewTag> using rebind = unsigned_integral_type<NewTag, T>;
+
   template <typename U>
     requires non_narrowing_integer_conversion<U, T>
   constexpr explicit unsigned_integral_type(const U value) noexcept
@@ -823,6 +834,8 @@ class floating_point_type
   using base_type = strong_type<Tag, T>;
 
 public:
+  template <typename NewTag> using rebind = floating_point_type<NewTag, T>;
+
   template <typename U>
     requires non_narrowing_floating_point_conversion<U, T>
   constexpr explicit floating_point_type(const U value) noexcept
@@ -858,11 +871,6 @@ public:
   constexpr auto is_nan() const noexcept -> bool {
     return std::isnan(this->unwrap());
   }
-
-private:
-  friend constexpr auto operator==(const floating_point_type /*lhs*/,
-                                   const floating_point_type /*rhs*/) noexcept
-      -> bool = delete;
 };
 
 // --- Bounded Integral Type ---
@@ -879,6 +887,9 @@ class bounded_integral_type : public strong_type<Tag, T> {
   template <typename U> constexpr static bool dependent_false = false;
 
 public:
+  template <typename NewTag>
+  using rebind = bounded_integral_type<NewTag, T, Min, Max>;
+
   /// The minimum value that the specified \c bounded_integral_type can hold.
   constexpr static bounded_integral_type min{Min};
   /// The maximum value that the specified \c bounded_integral_type can hold.
@@ -969,12 +980,12 @@ public:
 
 template <typename Tag, std::floating_point T>
 class complex_type : public strong_type<Tag, std::complex<T>>,
-                     output_stream<complex_type<Tag, T>>,
-                     addition<complex_type<Tag, T>>,
-                     subtraction<complex_type<Tag, T>>,
-                     multiplication<complex_type<Tag, T>>,
-                     division<complex_type<Tag, T>>,
-                     negation<complex_type<Tag, T>> {
+                     public output_stream<complex_type<Tag, T>>,
+                     public addition<complex_type<Tag, T>>,
+                     public subtraction<complex_type<Tag, T>>,
+                     public multiplication<complex_type<Tag, T>>,
+                     public division<complex_type<Tag, T>>,
+                     public negation<complex_type<Tag, T>> {
   using base_type = strong_type<Tag, std::complex<T>>;
 
   struct real_tag : Tag {};
@@ -983,6 +994,8 @@ class complex_type : public strong_type<Tag, std::complex<T>>,
 public:
   using real_part = floating_point_type<real_tag, T>;
   using imaginary_part = floating_point_type<imag_tag, T>;
+
+  template <typename NewTag> using rebind = complex_type<NewTag, T>;
 
   template <typename U1, typename U2>
     requires non_narrowing_floating_point_conversion<U1, T> &&
@@ -1007,14 +1020,16 @@ public:
 
 template <typename Tag, cxx_nullable_pointer Pointer>
 class pointer_type : public strong_type<Tag, Pointer>,
-                     equality_comparison<pointer_type<Tag, Pointer>>,
-                     three_way_comparison<pointer_type<Tag, Pointer>>,
-                     output_stream<pointer_type<Tag, Pointer>> {
+                     public equality_comparison<pointer_type<Tag, Pointer>>,
+                     public three_way_comparison<pointer_type<Tag, Pointer>>,
+                     public output_stream<pointer_type<Tag, Pointer>> {
   using base_type = strong_type<Tag, Pointer>;
 
 public:
   using pointer = Pointer;
   using element_type = std::pointer_traits<Pointer>::element_type;
+
+  template <typename NewTag> using rebind = pointer_type<NewTag, Pointer>;
 
   constexpr pointer_type(std::nullptr_t) noexcept : base_type(nullptr) {}
 
@@ -1061,10 +1076,11 @@ private:
 };
 
 template <typename Tag, typename T, typename Deleter>
-class unique_ptr_type : public strong_type<Tag, std::unique_ptr<T, Deleter>>,
-                        equality_comparison<unique_ptr_type<Tag, T, Deleter>>,
-                        three_way_comparison<unique_ptr_type<Tag, T, Deleter>>,
-                        output_stream<unique_ptr_type<Tag, T, Deleter>> {
+class unique_ptr_type
+    : public strong_type<Tag, std::unique_ptr<T, Deleter>>,
+      public equality_comparison<unique_ptr_type<Tag, T, Deleter>>,
+      public three_way_comparison<unique_ptr_type<Tag, T, Deleter>>,
+      public output_stream<unique_ptr_type<Tag, T, Deleter>> {
   using base_type = strong_type<Tag, std::unique_ptr<T, Deleter>>;
 
 public:
@@ -1072,6 +1088,8 @@ public:
       pointer_type<Tag, typename std::unique_ptr<T, Deleter>::pointer>;
   using element_type = std::unique_ptr<T, Deleter>::element_type;
   using deleter_type = Deleter;
+
+  template <typename NewTag> using rebind = unique_ptr_type<NewTag, T, Deleter>;
 
   constexpr unique_ptr_type(std::nullptr_t) noexcept
       : base_type(std::in_place, nullptr) {}
@@ -1217,9 +1235,10 @@ concept has_size = requires(C c) { c.size(); };
 } // namespace _detail
 
 template <typename Tag, cxx_container Container>
-class container_type : public strong_type<Tag, Container>,
-                       equality_comparison<container_type<Tag, Container>>,
-                       three_way_comparison<container_type<Tag, Container>> {
+class container_type
+    : public strong_type<Tag, Container>,
+      public equality_comparison<container_type<Tag, Container>>,
+      public three_way_comparison<container_type<Tag, Container>> {
 public:
   using value_type = Container::value_type;
   using reference = Container::reference;
@@ -1311,8 +1330,8 @@ public:
 template <typename Tag, cxx_sequence_container Container>
 class sequence_container_type
     : public strong_type<Tag, Container>,
-      equality_comparison<sequence_container_type<Tag, Container>>,
-      three_way_comparison<sequence_container_type<Tag, Container>> {
+      public equality_comparison<sequence_container_type<Tag, Container>>,
+      public three_way_comparison<sequence_container_type<Tag, Container>> {
   using base_type = strong_type<Tag, Container>;
 
 public:
@@ -1404,11 +1423,12 @@ template <std::intmax_t Min, std::intmax_t Max> struct range {};
 
 /// \cond
 namespace _detail {
-template <typename Tag, typename... Args> struct new_type_impl {
-  template <typename... U> static constexpr bool dependent_false = false;
+template <typename Tag, typename T, typename... Args> struct new_type_impl {
+  struct impl : strong_type<Tag, T>, Args::template skill<impl>... {
+    using strong_type<Tag, T>::strong_type;
+  };
 
-  static_assert(dependent_false<Args...>,
-                "Invalid combination of type arguments for cina::new_type");
+  using type = impl;
 };
 
 template <typename Tag, typename T> struct new_type_impl<Tag, T> {
@@ -1470,20 +1490,26 @@ struct new_type_impl<Tag, Ptr, owning_pointer> {
   using type = unique_ptr_type<Tag, std::remove_pointer_t<Ptr>>;
 };
 
-template <cxx_allocator_aware_container Container, typename Tag>
+template <typename Tag, cxx_allocator_aware_container Container>
   requires cxx_sequence_container<Container>
 class selected_container_type
-    : public allocator_aware_container_type<Container, Tag>,
-      public sequence_container_type<Container, Tag> {
+    : public allocator_aware_container_type<Tag, Container>,
+      public sequence_container_type<Tag, Container> {
 public:
+  template <typename NewTag>
+  using rebind = selected_container_type<NewTag, Container>;
   using allocator_aware_container_type<Container,
                                        Tag>::allocator_aware_container;
   using sequence_container_type<Container, Tag>::sequence_container_type;
 };
 
-template <cxx_allocator_aware_container Container, typename Tag>
+template <typename Tag, cxx_allocator_aware_container Container>
 struct new_type_impl<Tag, Container> {
-  using type = selected_container_type<Container, Tag>;
+  using type = selected_container_type<Tag, Container>;
+};
+
+template <typename Tag, strong_type_like T> struct new_type_impl<Tag, T> {
+  using type = T::template rebind<Tag>;
 };
 } // namespace _detail
 /// \cond

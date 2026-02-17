@@ -162,6 +162,10 @@ TEST(TestBoolean, TestTypeFactory) {
 
   using boolean_type2 = cina::subtype<boolean_type>;
   EXPECT_TRUE((std::same_as<boolean_type2, boolean_type>));
+
+  using boolean_type3 = cina::new_type<struct BooleanType3, boolean_type>;
+  EXPECT_TRUE(
+      (std::same_as<boolean_type3, cina::boolean_type<struct BooleanType3>>));
 }
 
 namespace {

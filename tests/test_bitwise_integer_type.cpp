@@ -311,6 +311,10 @@ TEST(TestBitwiseIntegralType, TestTypeFactory) {
 
   using int_type3 = cina::subtype<int_type1>;
   EXPECT_TRUE((std::same_as<int_type1, int_type3>));
+
+  using int_type4 = cina::new_type<struct IntType3, int_type1>;
+  EXPECT_TRUE((std::same_as<int_type4, cina::bitwise_signed_integral_type<
+                                           struct IntType3, std::int8_t>>));
 }
 
 namespace {

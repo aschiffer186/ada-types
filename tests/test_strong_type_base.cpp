@@ -44,6 +44,20 @@ TEST(TestStrongTypeBase, TestUnderlyingType) {
   EXPECT_TRUE((std::same_as<cina::underlying_type<type>, int>));
 }
 
+struct custom_skill1 {
+  template <typename Derived> struct skill {
+    int do_the_thing() { return static_cast<Derived&>(*this).unwrap() + 5; }
+  };
+};
+
+struct custom_skill2 {
+  template <typename Derived> struct skill {
+    int do_the_other_thing() {
+      return static_cast<Derived&>(*this).unwrap() + 6;
+    }
+  };
+};
+
 TEST(TestStongTypeBase, TestTypeFactory) {
   struct TestType {};
 
@@ -54,4 +68,9 @@ TEST(TestStongTypeBase, TestTypeFactory) {
   EXPECT_TRUE((std::same_as<type2, cina::strong_type<struct Type2, int>>));
   using type3 = cina::new_type<struct Type3, double, cina::no_skills>;
   EXPECT_TRUE((std::same_as<type3, cina::strong_type<struct Type3, double>>));
+
+  using type4 = cina::new_type<struct Type4, int, custom_skill1, custom_skill2>;
+  type4 t4{5};
+  EXPECT_EQ(t4.do_the_thing(), 10);
+  EXPECT_EQ(t4.do_the_other_thing(), 11);
 }
