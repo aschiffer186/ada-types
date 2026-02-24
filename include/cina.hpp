@@ -47,6 +47,11 @@ concept cxx_streamable = requires(T a, std::ostream& os) {
   { os << a } -> std::same_as<std::ostream&>;
 };
 
+template <typename T>
+concept cxx_input_streamable = requires(T a, std::istream& is) {
+  { is >> a } -> std::same_as<std::istream&>;
+};
+
 /// \tparam Concept modeling that \c std::hash is enabled for a type.
 ///
 /// \tparam T The type to check.
@@ -310,28 +315,34 @@ public:
 
 // --- Skills ---
 
-template <typename Derived> struct equality_comparison {
-  friend constexpr auto operator==(const Derived& lhs, const Derived& rhs)
-      -> bool
-    requires std::equality_comparable<underlying_type<Derived>>
-  {
-    return lhs.unwrap() == rhs.unwrap();
-  }
+struct equality_comparison {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator==(const Derived& lhs, const Derived& rhs)
+        -> bool
+      requires std::equality_comparable<underlying_type<Derived>>
+    {
+      return lhs.unwrap() == rhs.unwrap();
+    }
+  };
 };
 
-template <typename Derived> struct three_way_comparison {
-  friend constexpr auto operator<=>(const Derived& lhs, const Derived& rhs)
-    requires std::three_way_comparable<underlying_type<Derived>>
-  {
-    return lhs.unwrap() <=> rhs.unwrap();
-  }
+struct three_way_comparison {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator<=>(const Derived& lhs, const Derived& rhs)
+      requires std::three_way_comparable<underlying_type<Derived>>
+    {
+      return lhs.unwrap() <=> rhs.unwrap();
+    }
+  };
 };
 
-template <typename Derived> struct less {
-  friend constexpr auto operator<(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> bool {
-    return lhs.unwrap() < rhs.unwrap();
-  }
+struct less {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator<(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> bool {
+      return lhs.unwrap() < rhs.unwrap();
+    }
+  };
 };
 
 /// \cond
@@ -347,184 +358,229 @@ constexpr bool is_int8_type<bitwise_signed_integral_type<Tag, std::int8_t>> =
 } // namespace _detail
 /// \endcond
 
-template <typename Derived> struct output_stream {
-  friend constexpr auto operator<<(std::ostream& os, const Derived& value)
-      -> std::ostream&
-    requires cxx_streamable<underlying_type<Derived>>
-  {
-    if constexpr (_detail::is_int8_type<Derived>) {
-      // Prevent printing as char
-      return os << static_cast<int>(value.unwrap());
-    } else {
+struct output_stream {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator<<(std::ostream& os, const Derived& value)
+        -> std::ostream&
+      requires cxx_streamable<underlying_type<Derived>>
+    {
+      if constexpr (_detail::is_int8_type<Derived>) {
+        // Prevent printing as char
+        return os << static_cast<int>(value.unwrap());
+      } else {
+      }
+      return os << value.unwrap();
     }
-    return os << value.unwrap();
-  }
+  };
 };
 
-template <typename Derived> struct addition {
-  friend constexpr auto operator+(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() + rhs.unwrap());
-  }
-
-  friend constexpr auto operator+=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs + rhs;
-    return lhs;
-  }
+struct input_stream {
+  template <typename Derived> struct skill {
+    friend auto operator>>(std::istream& is, Derived& value) -> std::istream&
+      requires cxx_input_streamable<underlying_type<Derived>>
+    {
+      return is >> value.unwrap();
+    }
+  };
 };
 
-template <typename Derived> struct subtraction {
-  friend constexpr auto operator-(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() - rhs.unwrap());
-  }
+struct addition {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator+(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() + rhs.unwrap());
+    }
 
-  friend constexpr auto operator-=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs - rhs;
-    return lhs;
-  }
+    friend constexpr auto operator+=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs + rhs;
+      return lhs;
+    }
+  };
 };
 
-template <typename Derived> struct multiplication {
-  friend constexpr auto operator*(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() * rhs.unwrap());
-  }
+struct subtraction {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator-(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() - rhs.unwrap());
+    }
 
-  friend constexpr auto operator*=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs * rhs;
-    return lhs;
-  }
+    friend constexpr auto operator-=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs - rhs;
+      return lhs;
+    }
+  };
 };
 
-template <typename Derived> struct division {
-  friend constexpr auto operator/(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() / rhs.unwrap());
-  }
+struct multiplication {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator*(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() * rhs.unwrap());
+    }
 
-  friend constexpr auto operator/=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs / rhs;
-    return lhs;
-  }
+    friend constexpr auto operator*=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs * rhs;
+      return lhs;
+    }
+  };
 };
 
-template <typename Derived> struct modulo {
-  friend constexpr auto operator%(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() % rhs.unwrap());
-  }
+struct division {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator/(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() / rhs.unwrap());
+    }
 
-  friend constexpr auto operator%=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs % rhs;
-    return lhs;
-  }
+    friend constexpr auto operator/=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs / rhs;
+      return lhs;
+    }
+  };
 };
 
-template <typename Derived> struct negation {
-  friend constexpr auto operator-(const Derived& value) noexcept -> Derived {
-    return Derived(-value.unwrap());
-  }
+struct modulo {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator%(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() % rhs.unwrap());
+    }
+
+    friend constexpr auto operator%=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs % rhs;
+      return lhs;
+    }
+  };
 };
 
-template <typename Derived> struct increment {
-  friend constexpr auto operator++(Derived& value) noexcept -> Derived& {
-    value = Derived(value.unwrap() + 1);
-    return value;
-  }
-
-  friend constexpr auto operator++(Derived& value, int) noexcept -> Derived {
-    Derived old_value = value;
-    ++value;
-    return old_value;
-  }
+struct negation {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator-(const Derived& value) noexcept -> Derived {
+      return Derived(-value.unwrap());
+    }
+  };
 };
 
-template <typename Derived> struct decrement {
-  friend constexpr auto operator--(Derived& value) noexcept -> Derived& {
-    value = Derived(value.unwrap() - 1);
-    return value;
-  }
+struct increment {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator++(Derived& value) noexcept -> Derived& {
+      value = Derived(value.unwrap() + 1);
+      return value;
+    }
 
-  friend constexpr auto operator--(Derived& value, int) noexcept -> Derived {
-    Derived old_value = value;
-    --value;
-    return old_value;
-  }
+    friend constexpr auto operator++(Derived& value, int) noexcept -> Derived {
+      Derived old_value = value;
+      ++value;
+      return old_value;
+    }
+  };
 };
 
-template <typename Derived> struct bitwise_and {
-  friend constexpr auto operator&(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() & rhs.unwrap());
-  }
+struct decrement {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator--(Derived& value) noexcept -> Derived& {
+      value = Derived(value.unwrap() - 1);
+      return value;
+    }
 
-  friend constexpr auto operator&=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs & rhs;
-    return lhs;
-  }
+    friend constexpr auto operator--(Derived& value, int) noexcept -> Derived {
+      Derived old_value = value;
+      --value;
+      return old_value;
+    }
+  };
+};
+struct bitwise_and {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator&(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() & rhs.unwrap());
+    }
+
+    friend constexpr auto operator&=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs & rhs;
+      return lhs;
+    }
+  };
 };
 
-template <typename Derived> struct bitwise_or {
-  friend constexpr auto operator|(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() | rhs.unwrap());
-  }
+struct bitwise_or {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator|(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() | rhs.unwrap());
+    }
 
-  friend constexpr auto operator|=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs | rhs;
-    return lhs;
-  }
+    friend constexpr auto operator|=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs | rhs;
+      return lhs;
+    }
+  };
 };
 
-template <typename Derived> struct bitwise_xor {
-  friend constexpr auto operator^(const Derived& lhs,
-                                  const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() ^ rhs.unwrap());
-  }
+struct bitwise_xor {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator^(const Derived& lhs,
+                                    const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() ^ rhs.unwrap());
+    }
 
-  friend constexpr auto operator^=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs ^ rhs;
-    return lhs;
-  }
+    friend constexpr auto operator^=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs ^ rhs;
+      return lhs;
+    }
+  };
 };
 
-template <typename Derived> struct bitwise_not {
-  friend constexpr auto operator~(const Derived& value) noexcept -> Derived {
-    return Derived(~value.unwrap());
-  }
+struct bitwise_not {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator~(const Derived& value) noexcept -> Derived {
+      return Derived(~value.unwrap());
+    }
+  };
 };
 
-template <typename Derived> struct bitwise_shift {
-  friend constexpr auto operator<<(const Derived& lhs,
-                                   const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() << rhs.unwrap());
-  }
+struct bitwise_shift {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator<<(const Derived& lhs,
+                                     const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() << rhs.unwrap());
+    }
 
-  friend constexpr auto operator<<=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs << rhs;
-    return lhs;
-  }
+    friend constexpr auto operator<<=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs << rhs;
+      return lhs;
+    }
 
-  friend constexpr auto operator>>(const Derived& lhs,
-                                   const Derived& rhs) noexcept -> Derived {
-    return Derived(lhs.unwrap() >> rhs.unwrap());
-  }
+    friend constexpr auto operator>>(const Derived& lhs,
+                                     const Derived& rhs) noexcept -> Derived {
+      return Derived(lhs.unwrap() >> rhs.unwrap());
+    }
 
-  friend constexpr auto operator>>=(Derived& lhs, const Derived& rhs) noexcept
-      -> Derived& {
-    lhs = lhs >> rhs;
-    return lhs;
-  }
+    friend constexpr auto operator>>=(Derived& lhs, const Derived& rhs) noexcept
+        -> Derived& {
+      lhs = lhs >> rhs;
+      return lhs;
+    }
+  };
+};
+
+struct dereference {
+  template <typename Derived> struct skill {
+    friend constexpr decltype(auto) operator*(const Derived& derived) {
+      return *derived.unwrap();
+    }
+  };
 };
 
 namespace _detail {
@@ -533,7 +589,7 @@ template <typename...> constexpr bool dependent_false = false;
 
 template <typename Tag, typename UnderlyingType>
 class strong_type
-    : public equality_comparison<strong_type<Tag, UnderlyingType>> {
+    : public equality_comparison::skill<strong_type<Tag, UnderlyingType>> {
 public:
   /// Type alias for the underlying type.
   using underlying_type = UnderlyingType;
@@ -545,8 +601,8 @@ public:
   /// \brief Default constructor.
   ///
   /// Default initializes the underlying value of the \c strong_type.
-  /// This constructor is a \c constexpr constructor if the default constructor
-  /// of \c UnderlyingType is a \c constexpr constructor.
+  /// This constructor is a \c constexpr constructor if the default
+  /// constructor of \c UnderlyingType is a \c constexpr constructor.
   ///
   /// \pre The underlying type is default constructible.
   /// \post \c unwrap() returns a value equivalent to \c UnderlyingType{}.
@@ -563,8 +619,8 @@ public:
   /// This constructor is a \c constexpr constructor if the selected
   /// constructor of \c UnderlyingType is a \c constexpr constructor.
   ///
-  /// \pre <tt>std::constructible_from<UnderlyingType, U></tt> is modeled and \c
-  /// U is not a specialization of \c strong_type.
+  /// \pre <tt>std::constructible_from<UnderlyingType, U></tt> is modeled and
+  /// \c U is not a specialization of \c strong_type.
   /// \post \c unwrap() returns a value equivalent to \c
   /// UnderlyingType(std::forward<U>(value)).
   ///
@@ -587,12 +643,13 @@ public:
   /// This constructor is a \c constexpr constructor if the selected
   /// constructor of \c UnderlyingType is a \c constexpr constructor.
   ///
-  /// \pre <tt>std::constructible_from<UnderlyingType, Args...></tt> is modeled.
+  /// \pre <tt>std::constructible_from<UnderlyingType, Args...></tt> is
+  /// modeled.
   /// \post \c unwrap() returns a value equivalent to \c
   /// UnderlyingType(std::forward<Args>(args)...).
   ///
-  /// \tparam Args The types of the arguments to initialize the underlying value
-  /// with.
+  /// \tparam Args The types of the arguments to initialize the underlying
+  /// value with.
   /// \param args The arguments to initialize the underlying value with.
   /// \throws Any exceptions thrown by the selected constructor of \c
   /// UnderlyingType.
@@ -616,8 +673,8 @@ public:
   /// UnderlyingType(std::forward<Args>(args)...).
   ///
   /// \tparam U The type of the elements in the initializer list.
-  /// \tparam Args The types of the arguments to initialize the underlying value
-  /// with.
+  /// \tparam Args The types of the arguments to initialize the underlying
+  /// value with.
   /// \param il The initializer list to initialize the underlying value with.
   /// \param args The arguments to initialize the underlying value with.
   /// \throws Any exceptions thrown by the selected constructor of \c
@@ -666,16 +723,17 @@ public:
 /// \tparam Tag A unique tag type to distinguish different boolean types.
 template <typename Tag>
 class boolean_type : public strong_type<Tag, bool>,
-                     public equality_comparison<boolean_type<Tag>>,
-                     public less<boolean_type<Tag>>,
-                     public output_stream<boolean_type<Tag>> {
+                     public equality_comparison::skill<boolean_type<Tag>>,
+                     public less::skill<boolean_type<Tag>>,
+                     public output_stream::skill<boolean_type<Tag>>,
+                     public input_stream::skill<boolean_type<Tag>> {
 
   using base_type = strong_type<Tag, bool>;
 
 public:
   template <typename NewTag> using rebind = boolean_type<NewTag>;
 
-  /// \brief Constructor
+  /// \brief Constructors
   ///
   /// Initializes the underlying boolean value of the \c boolean_type.
   /// This constructor is a \c constexpr constructor.
@@ -726,17 +784,17 @@ private:
 template <typename Tag, cxx_arithmetic_integral T>
 class signed_integral_type
     : public strong_type<Tag, T>,
-      public equality_comparison<signed_integral_type<Tag, T>>,
-      public three_way_comparison<signed_integral_type<Tag, T>>,
-      public output_stream<signed_integral_type<Tag, T>>,
-      public addition<signed_integral_type<Tag, T>>,
-      public subtraction<signed_integral_type<Tag, T>>,
-      public multiplication<signed_integral_type<Tag, T>>,
-      public division<signed_integral_type<Tag, T>>,
-      public modulo<signed_integral_type<Tag, T>>,
-      public negation<signed_integral_type<Tag, T>>,
-      public increment<signed_integral_type<Tag, T>>,
-      public decrement<signed_integral_type<Tag, T>> {
+      public three_way_comparison::skill<signed_integral_type<Tag, T>>,
+      public output_stream::skill<signed_integral_type<Tag, T>>,
+      public input_stream::skill<signed_integral_type<Tag, T>>,
+      public addition::skill<signed_integral_type<Tag, T>>,
+      public subtraction::skill<signed_integral_type<Tag, T>>,
+      public multiplication::skill<signed_integral_type<Tag, T>>,
+      public division::skill<signed_integral_type<Tag, T>>,
+      public modulo::skill<signed_integral_type<Tag, T>>,
+      public negation::skill<signed_integral_type<Tag, T>>,
+      public increment::skill<signed_integral_type<Tag, T>>,
+      public decrement::skill<signed_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
@@ -760,22 +818,22 @@ public:
 template <typename Tag, cxx_arithmetic_integral T>
 class bitwise_signed_integral_type
     : public strong_type<Tag, T>,
-      public equality_comparison<bitwise_signed_integral_type<Tag, T>>,
-      public three_way_comparison<bitwise_signed_integral_type<Tag, T>>,
-      public output_stream<bitwise_signed_integral_type<Tag, T>>,
-      public addition<bitwise_signed_integral_type<Tag, T>>,
-      public subtraction<bitwise_signed_integral_type<Tag, T>>,
-      public multiplication<bitwise_signed_integral_type<Tag, T>>,
-      public division<bitwise_signed_integral_type<Tag, T>>,
-      public modulo<bitwise_signed_integral_type<Tag, T>>,
-      public negation<bitwise_signed_integral_type<Tag, T>>,
-      public increment<bitwise_signed_integral_type<Tag, T>>,
-      public decrement<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_and<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_or<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_xor<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_not<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_shift<bitwise_signed_integral_type<Tag, T>> {
+      public three_way_comparison::skill<bitwise_signed_integral_type<Tag, T>>,
+      public output_stream::skill<bitwise_signed_integral_type<Tag, T>>,
+      public input_stream::skill<bitwise_signed_integral_type<Tag, T>>,
+      public addition::skill<bitwise_signed_integral_type<Tag, T>>,
+      public subtraction::skill<bitwise_signed_integral_type<Tag, T>>,
+      public multiplication::skill<bitwise_signed_integral_type<Tag, T>>,
+      public division::skill<bitwise_signed_integral_type<Tag, T>>,
+      public modulo::skill<bitwise_signed_integral_type<Tag, T>>,
+      public negation::skill<bitwise_signed_integral_type<Tag, T>>,
+      public increment::skill<bitwise_signed_integral_type<Tag, T>>,
+      public decrement::skill<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_and::skill<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_or::skill<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_xor::skill<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_not::skill<bitwise_signed_integral_type<Tag, T>>,
+      public bitwise_shift::skill<bitwise_signed_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
@@ -791,22 +849,22 @@ public:
 template <typename Tag, cxx_unsigned_integral T>
 struct unsigned_integral_type
     : public strong_type<Tag, T>,
-      public equality_comparison<signed_integral_type<Tag, T>>,
-      public three_way_comparison<signed_integral_type<Tag, T>>,
-      public output_stream<signed_integral_type<Tag, T>>,
-      public addition<signed_integral_type<Tag, T>>,
-      public subtraction<signed_integral_type<Tag, T>>,
-      public multiplication<signed_integral_type<Tag, T>>,
-      public division<signed_integral_type<Tag, T>>,
-      public modulo<signed_integral_type<Tag, T>>,
-      public negation<signed_integral_type<Tag, T>>,
-      public increment<signed_integral_type<Tag, T>>,
-      public decrement<signed_integral_type<Tag, T>>,
-      public bitwise_and<unsigned_integral_type<Tag, T>>,
-      public bitwise_or<unsigned_integral_type<Tag, T>>,
-      public bitwise_xor<unsigned_integral_type<Tag, T>>,
-      public bitwise_not<unsigned_integral_type<Tag, T>>,
-      public bitwise_shift<unsigned_integral_type<Tag, T>> {
+      public three_way_comparison::skill<signed_integral_type<Tag, T>>,
+      public output_stream::skill<signed_integral_type<Tag, T>>,
+      public input_stream::skill<signed_integral_type<Tag, T>>,
+      public addition::skill<signed_integral_type<Tag, T>>,
+      public subtraction::skill<signed_integral_type<Tag, T>>,
+      public multiplication::skill<signed_integral_type<Tag, T>>,
+      public division::skill<signed_integral_type<Tag, T>>,
+      public modulo::skill<signed_integral_type<Tag, T>>,
+      public negation::skill<signed_integral_type<Tag, T>>,
+      public increment::skill<signed_integral_type<Tag, T>>,
+      public decrement::skill<signed_integral_type<Tag, T>>,
+      public bitwise_and::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_or::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_xor::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_not::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_shift::skill<unsigned_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
@@ -821,16 +879,16 @@ public:
 template <typename Tag, std::floating_point T>
 class floating_point_type
     : public strong_type<Tag, T>,
-      public equality_comparison<floating_point_type<Tag, T>>,
-      public three_way_comparison<floating_point_type<Tag, T>>,
-      public output_stream<floating_point_type<Tag, T>>,
-      public addition<floating_point_type<Tag, T>>,
-      public subtraction<floating_point_type<Tag, T>>,
-      public multiplication<floating_point_type<Tag, T>>,
-      public division<floating_point_type<Tag, T>>,
-      public negation<floating_point_type<Tag, T>>,
-      public increment<floating_point_type<Tag, T>>,
-      public decrement<floating_point_type<Tag, T>> {
+      public three_way_comparison::skill<floating_point_type<Tag, T>>,
+      public output_stream::skill<floating_point_type<Tag, T>>,
+      public input_stream::skill<floating_point_type<Tag, T>>,
+      public addition::skill<floating_point_type<Tag, T>>,
+      public subtraction::skill<floating_point_type<Tag, T>>,
+      public multiplication::skill<floating_point_type<Tag, T>>,
+      public division::skill<floating_point_type<Tag, T>>,
+      public negation::skill<floating_point_type<Tag, T>>,
+      public increment::skill<floating_point_type<Tag, T>>,
+      public decrement::skill<floating_point_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
 
 public:
@@ -980,12 +1038,14 @@ public:
 
 template <typename Tag, std::floating_point T>
 class complex_type : public strong_type<Tag, std::complex<T>>,
-                     public output_stream<complex_type<Tag, T>>,
-                     public addition<complex_type<Tag, T>>,
-                     public subtraction<complex_type<Tag, T>>,
-                     public multiplication<complex_type<Tag, T>>,
-                     public division<complex_type<Tag, T>>,
-                     public negation<complex_type<Tag, T>> {
+                     public equality_comparison::skill<complex_type<Tag, T>>,
+                     public output_stream::skill<complex_type<Tag, T>>,
+                     public input_stream::skill<complex_type<Tag, T>>,
+                     public addition::skill<complex_type<Tag, T>>,
+                     public subtraction::skill<complex_type<Tag, T>>,
+                     public multiplication::skill<complex_type<Tag, T>>,
+                     public division::skill<complex_type<Tag, T>>,
+                     public negation::skill<complex_type<Tag, T>> {
   using base_type = strong_type<Tag, std::complex<T>>;
 
   struct real_tag : Tag {};
@@ -1019,10 +1079,12 @@ public:
 // --- Pointer Types ---
 
 template <typename Tag, cxx_nullable_pointer Pointer>
-class pointer_type : public strong_type<Tag, Pointer>,
-                     public equality_comparison<pointer_type<Tag, Pointer>>,
-                     public three_way_comparison<pointer_type<Tag, Pointer>>,
-                     public output_stream<pointer_type<Tag, Pointer>> {
+class pointer_type
+    : public strong_type<Tag, Pointer>,
+      public equality_comparison::skill<pointer_type<Tag, Pointer>>,
+      public three_way_comparison::skill<pointer_type<Tag, Pointer>>,
+      public output_stream::skill<pointer_type<Tag, Pointer>>,
+      public dereference::skill<pointer_type<Tag, Pointer>> {
   using base_type = strong_type<Tag, Pointer>;
 
 public:
@@ -1039,14 +1101,6 @@ public:
 
   constexpr explicit operator bool() const noexcept {
     return this->unwrap() != nullptr;
-  }
-
-  constexpr auto operator*() const
-      -> std::add_lvalue_reference_t<element_type> {
-#ifdef CINA_ENFORCE_PRECONDITIONS
-    assert(this->unwrap() != nullptr && "Dereferencing a null pointer_type");
-#endif
-    return *this->unwrap();
   }
 
   constexpr auto operator->() const noexcept -> pointer {
@@ -1078,9 +1132,10 @@ private:
 template <typename Tag, typename T, typename Deleter>
 class unique_ptr_type
     : public strong_type<Tag, std::unique_ptr<T, Deleter>>,
-      public equality_comparison<unique_ptr_type<Tag, T, Deleter>>,
-      public three_way_comparison<unique_ptr_type<Tag, T, Deleter>>,
-      public output_stream<unique_ptr_type<Tag, T, Deleter>> {
+      public equality_comparison::skill<unique_ptr_type<Tag, T, Deleter>>,
+      public three_way_comparison::skill<unique_ptr_type<Tag, T, Deleter>>,
+      public output_stream::skill<unique_ptr_type<Tag, T, Deleter>>,
+      public dereference::skill<unique_ptr_type<Tag, T, Deleter>> {
   using base_type = strong_type<Tag, std::unique_ptr<T, Deleter>>;
 
 public:
@@ -1142,14 +1197,6 @@ public:
 
   CINA_POINTER_CONSTEXPR explicit operator bool() const noexcept {
     return this->unwrap() != nullptr;
-  }
-
-  CINA_POINTER_CONSTEXPR auto operator*() const
-      -> std::add_lvalue_reference_t<element_type> {
-#ifdef CINA_ENFORCE_PRECONDITIONS
-    assert(this->unwrap() != nullptr && "Dereferencing a null unique_ptr_type");
-#endif
-    return *this->unwrap();
   }
 
   CINA_POINTER_CONSTEXPR auto operator->() const noexcept -> pointer {
@@ -1237,8 +1284,8 @@ concept has_size = requires(C c) { c.size(); };
 template <typename Tag, cxx_container Container>
 class container_type
     : public strong_type<Tag, Container>,
-      public equality_comparison<container_type<Tag, Container>>,
-      public three_way_comparison<container_type<Tag, Container>> {
+      public equality_comparison::skill<container_type<Tag, Container>>,
+      public three_way_comparison::skill<container_type<Tag, Container>> {
 public:
   using value_type = Container::value_type;
   using reference = Container::reference;
@@ -1328,10 +1375,11 @@ public:
 };
 
 template <typename Tag, cxx_sequence_container Container>
-class sequence_container_type
-    : public strong_type<Tag, Container>,
-      public equality_comparison<sequence_container_type<Tag, Container>>,
-      public three_way_comparison<sequence_container_type<Tag, Container>> {
+class sequence_container_type : public strong_type<Tag, Container>,
+                                public equality_comparison::skill<
+                                    sequence_container_type<Tag, Container>>,
+                                public three_way_comparison::skill<
+                                    sequence_container_type<Tag, Container>> {
   using base_type = strong_type<Tag, Container>;
 
 public:
