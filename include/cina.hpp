@@ -60,6 +60,9 @@ concept cxx_hashable = requires(T a) {
   { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
 };
 
+template <typename T>
+concept cxx_boolean = std::same_as<std::remove_cvref_t<T>, bool>;
+
 /// \brief Concept modeling that a type is an "arithmetic" signed integral type.
 ///
 /// This concept is modeled if \c T is a signed-integral type and \c T is not
@@ -68,15 +71,17 @@ concept cxx_hashable = requires(T a) {
 /// \tparam T The type to check.
 template <typename T>
 concept cxx_arithmetic_integral =
-    std::signed_integral<T> && !std::same_as<T, bool> &&
-    !std::same_as<T, char16_t> && !std::same_as<T, char32_t> &&
-    !std::same_as<T, wchar_t>;
-
+    std::signed_integral<std::remove_cvref_t<T>> &&
+    !std::same_as<std::remove_cvref_t<T>, bool> &&
+    !std::same_as<std::remove_cvref_t<T>, char16_t> &&
+    !std::same_as<std::remove_cvref_t<T>, char32_t> &&
+    !std::same_as<std::remove_cvref_t<T>, wchar_t>;
 /// \brief Concept modeling that a type is an unsigned integral type.
 ///
 /// \tparam T The type to check.
 template <typename T>
-concept cxx_unsigned_integral = std::unsigned_integral<T>;
+concept cxx_unsigned_integral =
+    std::unsigned_integral<T> && !std::same_as<std::remove_cvref_t<T>, bool>;
 
 /// \brief Concept modeling that a type satisfies the NullbalePointer
 /// requirement in the C++ standard.
@@ -167,7 +172,7 @@ concept non_narrowing_floating_point_conversion =
 
 template <typename Tag, typename UnderlyingType> class strong_type;
 
-template <typename Tag> class boolean_type;
+template <typename Tag, cxx_boolean T> class boolean_type;
 
 template <typename Tag, cxx_arithmetic_integral T> class signed_integral_type;
 
@@ -234,33 +239,59 @@ using underlying_type =
 
 /// \cond
 namespace _detail {
-template <typename> constexpr bool is_integral_type = false;
+template <typename Tag, typename T>
+auto to_signed_integral_type(signed_integral_type<Tag, T>)
+    -> signed_integral_type<Tag, T>;
 
-template <typename Tag, cxx_arithmetic_integral T>
-constexpr bool is_integral_type<signed_integral_type<Tag, T>> = true;
+template <typename, typename = void> constexpr bool is_integral_type = false;
 
-template <typename> constexpr bool is_bitwise_integral_type = false;
-
-template <typename Tag, cxx_arithmetic_integral T>
-constexpr bool is_bitwise_integral_type<bitwise_signed_integral_type<Tag, T>> =
+template <typename T>
+constexpr bool is_integral_type<
+    T, std::void_t<decltype(to_signed_integral_type(std::declval<T>()))>> =
     true;
 
-template <typename> constexpr bool is_floating_point_type = false;
+template <typename Tag, typename T>
+auto to_bitwise_integral_type(bitwise_signed_integral_type<Tag, T>)
+    -> bitwise_signed_integral_type<Tag, T>;
 
-template <typename Tag, std::floating_point T>
-constexpr bool is_floating_point_type<floating_point_type<Tag, T>> = true;
+template <typename, typename = void>
+constexpr bool is_bitwise_integral_type = false;
 
-template <typename> constexpr bool is_bounded_integral = false;
-
-template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
-          std::intmax_t Max>
-constexpr bool is_bounded_integral<bounded_integral_type<Tag, T, Min, Max>> =
+template <typename T>
+constexpr bool is_bitwise_integral_type<
+    T, std::void_t<decltype(to_bitwise_integral_type(std::declval<T>()))>> =
     true;
 
-template <typename> constexpr bool is_complex_type = false;
+template <typename Tag, typename T>
+auto to_floating_point_type(floating_point_type<Tag, T>)
+    -> floating_point_type<Tag, T>;
 
-template <typename Tag, std::floating_point T>
-constexpr bool is_complex_type<complex_type<Tag, T>> = true;
+template <typename, typename = void>
+constexpr bool is_floating_point_type = false;
+
+template <typename T>
+constexpr bool is_floating_point_type<
+    T, std::void_t<decltype(to_floating_point_type(std::declval<T>()))>> = true;
+
+template <typename Tag, typename T, std::intmax_t Min, std::intmax_t Max>
+auto to_bounded_integral_type(bounded_integral_type<Tag, T, Min, Max>)
+    -> bounded_integral_type<Tag, T, Min, Max>;
+
+template <typename, typename = void> constexpr bool is_bounded_integral = false;
+
+template <typename T>
+constexpr bool is_bounded_integral<
+    T, std::void_t<decltype(to_bounded_integral_type(std::declval<T>()))>> =
+    true;
+
+template <typename Tag, typename T>
+auto to_complex_type(complex_type<Tag, T>) -> complex_type<Tag, T>;
+
+template <typename, typename = void> constexpr bool is_complex_type = false;
+
+template <typename T>
+constexpr bool is_complex_type<
+    T, std::void_t<decltype(to_complex_type(std::declval<T>()))>> = true;
 } // namespace _detail
 /// \endcond
 
@@ -585,7 +616,74 @@ struct dereference {
 
 namespace _detail {
 template <typename...> constexpr bool dependent_false = false;
-}
+
+template <typename T> class strong_type_storage {
+public:
+  strong_type_storage() = default;
+
+  template <typename U>
+  constexpr explicit strong_type_storage(U&& value)
+      : _m_do_not_use_only_public_to_make_usable_as_nttp(
+            std::forward<U>(value)) {}
+
+  template <typename... Args>
+  constexpr strong_type_storage(std::in_place_t, Args&&... args)
+      : _m_do_not_use_only_public_to_make_usable_as_nttp(
+            std::forward<Args>(args)...) {}
+
+  template <typename U, typename... Args>
+  constexpr strong_type_storage(std::in_place_t, std::initializer_list<U> il,
+                                Args&&... args)
+      : _m_do_not_use_only_public_to_make_usable_as_nttp(
+            il, std::forward<Args>(args)...) {}
+
+  constexpr auto unwrap() & -> T& {
+    return _m_do_not_use_only_public_to_make_usable_as_nttp;
+  }
+
+  constexpr auto unwrap() const& -> const T& {
+    return _m_do_not_use_only_public_to_make_usable_as_nttp;
+  }
+
+  constexpr auto unwrap() && -> T&& {
+    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp);
+  }
+
+  constexpr auto unwrap() const&& -> const T&& {
+    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp);
+  }
+
+  T _m_do_not_use_only_public_to_make_usable_as_nttp;
+};
+
+template <typename T> class strong_type_storage<T&> {
+public:
+  constexpr explicit strong_type_storage(T& value)
+      : _m_do_not_use_only_public_to_make_usable_as_nttp(&value) {}
+
+  constexpr auto unwrap() & -> T& {
+    return *_m_do_not_use_only_public_to_make_usable_as_nttp;
+  }
+
+  constexpr auto unwrap() const& -> const T& {
+    return *_m_do_not_use_only_public_to_make_usable_as_nttp;
+  }
+
+  T* _m_do_not_use_only_public_to_make_usable_as_nttp;
+};
+
+template <typename T> class strong_type_storage<const T&> {
+public:
+  constexpr explicit strong_type_storage(const T& value)
+      : _m_do_not_use_only_public_to_make_usable_as_nttp(&value) {}
+
+  constexpr auto unwrap() const& -> const T& {
+    return *_m_do_not_use_only_public_to_make_usable_as_nttp;
+  }
+
+  const T* _m_do_not_use_only_public_to_make_usable_as_nttp;
+};
+} // namespace _detail
 
 template <typename Tag, typename UnderlyingType>
 class strong_type
@@ -598,6 +696,11 @@ public:
 
   template <typename NewTag> using rebind = strong_type<NewTag, UnderlyingType>;
 
+  using reference =
+      strong_type<Tag, std::add_lvalue_reference_t<UnderlyingType>>;
+  using const_reference = strong_type<
+      Tag, std::add_lvalue_reference_t<std::add_const_t<UnderlyingType>>>;
+
   /// \brief Default constructor.
   ///
   /// Default initializes the underlying value of the \c strong_type.
@@ -609,7 +712,8 @@ public:
   /// \throws Any exceptions thrown by the default constructor of \c
   /// UnderlyingType.
   constexpr strong_type()
-    requires std::is_default_constructible_v<UnderlyingType>
+    requires std::is_default_constructible_v<UnderlyingType> &&
+                 (!std::is_reference_v<UnderlyingType>)
   = default;
 
   /// \brief Constructor
@@ -658,7 +762,7 @@ public:
   constexpr explicit strong_type(std::in_place_t, Args&&... args) noexcept(
       std::is_nothrow_constructible_v<UnderlyingType, Args...>)
       : _m_do_not_use_only_public_to_make_usable_as_nttp(
-            std::forward<Args>(args)...) {}
+            std::in_place, std::forward<Args>(args)...) {}
 
   /// \brief Constructor
   ///
@@ -689,26 +793,35 @@ public:
                                        UnderlyingType,
                                        std::initializer_list<U>&, Args...>)
       : _m_do_not_use_only_public_to_make_usable_as_nttp(
-            il, std::forward<Args>(args)...) {}
+            std::in_place, il, std::forward<Args>(args)...) {}
+
+  constexpr auto unwrap() & noexcept
+      -> std::remove_reference_t<UnderlyingType>& {
+    return _m_do_not_use_only_public_to_make_usable_as_nttp.unwrap();
+  }
 
   /// \brief Returns a reference to the underlying value.
   ///
   /// \return A const-reference to the underlying value.
-  constexpr auto unwrap() const& noexcept -> const UnderlyingType& {
-    return _m_do_not_use_only_public_to_make_usable_as_nttp;
+  constexpr auto unwrap() const& noexcept
+      -> const std::remove_reference_t<UnderlyingType>& {
+    return _m_do_not_use_only_public_to_make_usable_as_nttp.unwrap();
   }
 
-  constexpr auto unwrap() && noexcept -> UnderlyingType&& {
-    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp);
+  constexpr auto unwrap() && noexcept
+      -> std::remove_reference_t<UnderlyingType>&& {
+    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp).unwrap();
   }
 
-  constexpr auto unwrap() const&& noexcept -> const UnderlyingType&& {
-    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp);
+  constexpr auto unwrap() const&& noexcept
+      -> const std::remove_reference_t<UnderlyingType>&& {
+    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp).unwrap();
   }
 
   /// Should only be used by Cina, not by users directly.
   /// Use unwrap() instead!.
-  UnderlyingType _m_do_not_use_only_public_to_make_usable_as_nttp{};
+  _detail::strong_type_storage<UnderlyingType>
+      _m_do_not_use_only_public_to_make_usable_as_nttp;
 };
 
 // --- Boolean Type ---
@@ -721,17 +834,21 @@ public:
 /// of any arithmetic operations.
 ///
 /// \tparam Tag A unique tag type to distinguish different boolean types.
-template <typename Tag>
-class boolean_type : public strong_type<Tag, bool>,
-                     public equality_comparison::skill<boolean_type<Tag>>,
-                     public less::skill<boolean_type<Tag>>,
-                     public output_stream::skill<boolean_type<Tag>>,
-                     public input_stream::skill<boolean_type<Tag>> {
+template <typename Tag, cxx_boolean T>
+class boolean_type : public strong_type<Tag, T>,
+                     public equality_comparison::skill<boolean_type<Tag, T>>,
+                     public less::skill<boolean_type<Tag, T>>,
+                     public output_stream::skill<boolean_type<Tag, T>>,
+                     public input_stream::skill<boolean_type<Tag, T>> {
 
-  using base_type = strong_type<Tag, bool>;
+  using base_type = strong_type<Tag, T>;
 
 public:
-  template <typename NewTag> using rebind = boolean_type<NewTag>;
+  template <typename NewTag> using rebind = boolean_type<NewTag, T>;
+
+  using reference = boolean_type<Tag, std::add_lvalue_reference_t<T>>;
+  using const_reference =
+      boolean_type<Tag, std::add_lvalue_reference_t<std::add_const_t<T>>>;
 
   /// \brief Constructors
   ///
@@ -742,8 +859,20 @@ public:
   ///
   /// \param value The boolean value to initialize the \c boolean_type with.
   /// \throws Nothing.
-  constexpr explicit boolean_type(const bool value) noexcept
-      : base_type(value) {}
+  constexpr explicit boolean_type(T value) noexcept : base_type(value) {}
+
+  template <cxx_boolean U>
+    requires std::constructible_from<T, U&>
+  constexpr boolean_type(boolean_type<Tag, U> other) noexcept
+      : base_type(other.unwrap()) {}
+
+  template <cxx_boolean U>
+    requires std::assignable_from<T, U&>
+  constexpr auto operator=(boolean_type<Tag, U> other) noexcept
+      -> boolean_type& {
+    this->unwrap() = other.unwrap();
+    return *this;
+  }
 
   constexpr explicit operator bool() const noexcept { return this->unwrap(); }
 
@@ -800,6 +929,10 @@ class signed_integral_type
 public:
   template <typename NewTag> using rebind = signed_integral_type<NewTag, T>;
 
+  using reference = signed_integral_type<Tag, std::add_lvalue_reference_t<T>>;
+  using const_reference =
+      signed_integral_type<Tag,
+                           std::add_lvalue_reference_t<std::add_const_t<T>>>;
   /// \brief Constructor
   ///
   /// Constructs a \c integral_type from the specified value.
@@ -810,9 +943,18 @@ public:
   /// \tparam U The type of the value to construct the \c integral_type from.
   /// \param value The value to construct the \c integral_type from.
   template <cxx_arithmetic_integral U>
-    requires non_narrowing_integer_conversion<U, T>
-  constexpr explicit signed_integral_type(const U value) noexcept
+    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
+                                              std::remove_reference_t<T>>
+  constexpr explicit signed_integral_type(U value) noexcept
       : base_type(static_cast<T>(value)) {}
+
+  template <cxx_arithmetic_integral U>
+    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
+                                              std::remove_reference_t<T>> &&
+             std::constructible_from<T, U&>
+  constexpr explicit signed_integral_type(
+      signed_integral_type<Tag, U> other) noexcept
+      : base_type(static_cast<T>(other.unwrap())) {}
 };
 
 template <typename Tag, cxx_arithmetic_integral T>
@@ -1227,6 +1369,16 @@ private:
   }
 };
 
+template <typename Tag, typename T>
+struct shared_ptr_type
+    : public strong_type<Tag, std::shared_ptr<T>>,
+      public equality_comparison::skill<shared_ptr_type<Tag, T>>,
+      public three_way_comparison::skill<shared_ptr_type<Tag, T>>,
+      public output_stream::skill<shared_ptr_type<Tag, T>>,
+      public dereference::skill<shared_ptr_type<Tag, T>> {
+  using base_type = strong_type<Tag, std::shared_ptr<T>>;
+};
+
 // --- Container Types ---
 namespace _detail {
 template <typename Itr, typename Tag> class const_iterator;
@@ -1297,8 +1449,7 @@ public:
       _detail::const_iterator<typename Container::const_iterator, Tag>;
 
   constexpr auto begin() -> iterator {
-    return iterator(
-        this->_m_do_not_use_only_public_to_make_usable_as_nttp.begin());
+    return iterator(this->unwrap().begin());
   }
 
   constexpr auto begin() const -> const_iterator {
@@ -1309,10 +1460,7 @@ public:
     return const_iterator(this->unwrap().cbegin());
   }
 
-  constexpr auto end() -> iterator {
-    return iterator(
-        this->_m_do_not_use_only_public_to_make_usable_as_nttp.end());
-  }
+  constexpr auto end() -> iterator { return iterator(this->unwrap().end()); }
 
   constexpr auto end() const -> const_iterator {
     return const_iterator(this->unwrap().end());
@@ -1323,8 +1471,7 @@ public:
   }
 
   constexpr auto swap(container_type& other) -> void {
-    this->_m_do_not_use_only_public_to_make_usable_as_nttp.swap(
-        other._m_do_not_use_only_public_to_make_usable_as_nttp);
+    this->unwrap().swap(other.unwrap());
   }
 
   constexpr auto size() const -> size_type
@@ -1411,8 +1558,7 @@ public:
       : base_type(std::in_place, il) {}
 
   constexpr auto begin() -> iterator {
-    return iterator(
-        this->_m_do_not_use_only_public_to_make_usable_as_nttp.begin());
+    return iterator(this->unwrap().begin());
   }
 
   constexpr auto begin() const -> const_iterator {
@@ -1423,10 +1569,7 @@ public:
     return const_iterator(this->unwrap().cbegin());
   }
 
-  constexpr auto end() -> iterator {
-    return iterator(
-        this->_m_do_not_use_only_public_to_make_usable_as_nttp.end());
-  }
+  constexpr auto end() -> iterator { return iterator(this->unwrap().end()); }
 
   constexpr auto end() const -> const_iterator {
     return const_iterator(this->unwrap().end());
@@ -1437,8 +1580,7 @@ public:
   }
 
   constexpr auto swap(sequence_container_type& other) -> void {
-    this->_m_do_not_use_only_public_to_make_usable_as_nttp.swap(
-        other._m_do_not_use_only_public_to_make_usable_as_nttp);
+    this->unwrap().swap(other.unwrap());
   }
 
   constexpr auto size() const -> size_type
@@ -1488,8 +1630,8 @@ struct new_type_impl<Tag, T, no_skills, Args...> {
   using type = strong_type<Tag, T>;
 };
 
-template <typename Tag> struct new_type_impl<Tag, bool> {
-  using type = boolean_type<Tag>;
+template <typename Tag, cxx_boolean T> struct new_type_impl<Tag, T> {
+  using type = boolean_type<Tag, T>;
 };
 
 template <typename Tag, cxx_arithmetic_integral T>
@@ -1718,7 +1860,6 @@ template <cina::strong_type_like T> struct std::hash<T> {
 };
 
 template <cina::strong_type_like T>
-  requires std::formattable<cina::underlying_type<T>, char>
 struct std::formatter<T> : std::formatter<std::string_view> {
   constexpr auto parse(std::format_parse_context& ctx) const {
     return ctx.begin();

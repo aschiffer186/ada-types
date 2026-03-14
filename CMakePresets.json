@@ -20,6 +20,17 @@
                 "CMAKE_CXX_FLAGS_DEBUG": "-O0 -g",
                 "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
             }
+        },
+        {
+            "name": "ninja-sanitizer",
+            "displayName": "Ninja (Sanitizer)",
+            "inherits": "common",
+            "generator": "Ninja Multi-Config",
+            "cacheVariables": {
+                "CMAKE_CXX_FLAGS": "-Wall -Wextra -Werror -pedantic -fsanitize=address,undefined",
+                "CMAKE_CXX_FLAGS_DEBUG": "-O0 -g",
+                "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
+            }
         }
     ],
     "buildPresets": [
@@ -34,6 +45,12 @@
             "configurePreset": "ninja",
             "displayName": "Ninja (Release)",
             "configuration": "Release"
+        },
+        {
+            "name": "ninja-sanitizier",
+            "configurePreset": "ninja-sanitizer",
+            "displayName": "Ninja (Sanitizer)",
+            "configuration": "Debug"
         }
     ],
     "testPresets": [

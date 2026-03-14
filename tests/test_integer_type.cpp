@@ -46,6 +46,16 @@ TEST(TestIntegerType, TestConstructor) {
 
   EXPECT_FALSE((std::convertible_to<int, int_type>));
   EXPECT_FALSE((std::convertible_to<int_type, int>));
+
+  int i{42};
+  int_type::reference ref{i};
+  int& i2 = ref.unwrap();
+  EXPECT_EQ(i2, 42);
+
+  int_type i3{42};
+  int_type::const_reference ref2{i3};
+  const int& i4 = ref2.unwrap();
+  EXPECT_EQ(i4, 42);
 }
 
 TEST(TestIntegerType, TestAssignment) {
@@ -63,6 +73,12 @@ TEST(TestIntegerType, TestCinaConcepts) {
   EXPECT_TRUE(cina::arithmetic<int_type>);
 
   EXPECT_TRUE((std::same_as<cina::underlying_type<int_type>, int>));
+
+  struct Type : cina::signed_integral_type<Type, int> {};
+  EXPECT_TRUE(cina::strong_type_like<Type>);
+  EXPECT_TRUE(cina::integral<Type>);
+  EXPECT_TRUE(cina::arithmetic<Type>);
+  EXPECT_TRUE((std::same_as<cina::underlying_type<Type>, int>));
 }
 
 TEST(TestIntegerType, TestFormat) {
@@ -250,6 +266,11 @@ TEST(TestIntegerType, TestTypeFactory) {
 
   using int_type3 = cina::subtype<int_type1>;
   EXPECT_TRUE((std::same_as<int_type1, int_type3>));
+
+  using int_type4 = cina::new_type<struct IntType4, int_type1>;
+  EXPECT_TRUE(
+      (std::same_as<int_type4,
+                    cina::signed_integral_type<struct IntType4, std::int8_t>>));
 }
 
 namespace {
