@@ -1420,10 +1420,78 @@ public:
     return temp;
   }
 
+  constexpr auto operator--() -> iterator&
+    requires std::derived_from<iterator_category,
+                               std::bidirectional_iterator_tag>
+  {
+    --m_itr;
+    return *this;
+  }
+
+  constexpr auto operator--(int) -> iterator
+    requires std::derived_from<iterator_category,
+                               std::bidirectional_iterator_tag>
+  {
+    iterator temp{*this};
+    --(*this);
+    return temp;
+  }
+
+  constexpr auto operator[](const difference_type n) const -> reference
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    return m_itr[n];
+  }
+
+  constexpr auto operator+=(const difference_type n) -> iterator&
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    m_itr += n;
+    return *this;
+  }
+
+  constexpr auto operator-=(const difference_type n) -> iterator&
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    m_itr -= n;
+    return *this;
+  }
+
 private:
   friend constexpr auto operator==(const iterator lhs, const iterator rhs)
       -> bool {
     return lhs.m_itr == rhs.m_itr;
+  }
+
+  friend constexpr auto operator<=>(const iterator lhs, const iterator rhs)
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    return lhs.m_itr <=> rhs.m_itr;
+  }
+
+  friend constexpr auto operator+(const iterator lhs, const difference_type n)
+      -> iterator
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    return iterator(lhs.m_itr + n);
+  }
+
+  friend constexpr auto operator-(const iterator lhs, const difference_type n)
+      -> iterator
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    return iterator(lhs.m_itr - n);
+  }
+
+  friend constexpr auto operator-(const iterator lhs, const iterator rhs)
+      -> difference_type {
+    return lhs.m_itr - rhs.m_itr;
   }
 
   template <typename I, typename T> friend class const_iterator;
@@ -1433,11 +1501,106 @@ private:
 
 template <typename Itr, typename Tag> class const_iterator {
 public:
+  using difference_type = std::iterator_traits<Itr>::difference_type;
+  using value_type = std::iterator_traits<Itr>::value_type;
+  using pointer = std::iterator_traits<Itr>::pointer;
+  using reference = std::iterator_traits<Itr>::reference;
+  using iterator_category = std::iterator_traits<Itr>::iterator_category;
+
   constexpr explicit const_iterator(const Itr itr) : m_itr{itr} {}
 
   constexpr const_iterator(const iterator<Itr, Tag> itr) : m_itr{itr.m_itr} {}
 
+  constexpr auto operator*() const -> reference { return *m_itr; }
+
+  constexpr auto operator->() const -> pointer { return m_itr.operator->(); }
+
+  constexpr auto operator++() -> const_iterator& {
+    ++m_itr;
+    return *this;
+  }
+
+  constexpr auto operator++(int) -> const_iterator {
+    iterator temp{*this};
+    ++(*this);
+    return temp;
+  }
+
+  constexpr auto operator--() -> const_iterator&
+    requires std::derived_from<iterator_category,
+                               std::bidirectional_iterator_tag>
+  {
+    --m_itr;
+    return *this;
+  }
+
+  constexpr auto operator--(int) -> const_iterator
+    requires std::derived_from<iterator_category,
+                               std::bidirectional_iterator_tag>
+  {
+    const_iterator temp{*this};
+    --(*this);
+    return temp;
+  }
+
+  constexpr auto operator[](const difference_type n) const -> reference
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    return m_itr[n];
+  }
+
+  constexpr auto operator+=(const difference_type n) -> const_iterator&
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    m_itr += n;
+    return *this;
+  }
+
+  constexpr auto operator-=(const difference_type n) -> const_iterator&
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    m_itr -= n;
+    return *this;
+  }
+
 private:
+  friend constexpr auto operator==(const const_iterator lhs,
+                                   const const_iterator rhs) -> bool {
+    return lhs.m_itr == rhs.m_itr;
+  }
+
+  friend constexpr auto operator<=>(const const_iterator lhs,
+                                    const const_iterator rhs)
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    return lhs.m_itr <=> rhs.m_itr;
+  }
+
+  friend constexpr auto operator+(const const_iterator lhs,
+                                  const difference_type n) -> const_iterator
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    return const_iterator(lhs.m_itr + n);
+  }
+
+  friend constexpr auto operator-(const const_iterator lhs,
+                                  const difference_type n) -> const_iterator
+    requires std::derived_from<iterator_category,
+                               std::random_access_iterator_tag>
+  {
+    return const_iterator(lhs.m_itr - n);
+  }
+
+  friend constexpr auto operator-(const const_iterator lhs,
+                                  const const_iterator rhs) -> difference_type {
+    return lhs.m_itr - rhs.m_itr;
+  }
+
   Itr m_itr;
 };
 
@@ -1680,7 +1843,8 @@ public:
       : base_type(std::in_place, first, last, alloc) {}
 
   constexpr allocator_aware_sequence_container_type(
-      std::initializer_list<value_type> il, const allocator_type& alloc) {}
+      std::initializer_list<value_type> il, const allocator_type& alloc)
+      : base_type(std::in_place, il, alloc) {}
 
   constexpr auto get_allocator() const -> typename Container::allocator_type {
     return this->unwrap().get_allocator();
