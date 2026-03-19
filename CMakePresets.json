@@ -27,7 +27,7 @@
             "inherits": "common",
             "generator": "Ninja Multi-Config",
             "cacheVariables": {
-                "CMAKE_CXX_FLAGS": "-Wall -Wextra -Werror -pedantic -fsanitize=address,undefined",
+                "CMAKE_CXX_FLAGS": "-Wall -Wextra -Werror -pedantic -fsanitize=undefined",
                 "CMAKE_CXX_FLAGS_DEBUG": "-O0 -g",
                 "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
             }

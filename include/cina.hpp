@@ -795,8 +795,9 @@ public:
       : _m_do_not_use_only_public_to_make_usable_as_nttp(
             std::in_place, il, std::forward<Args>(args)...) {}
 
-  constexpr auto unwrap() & noexcept
-      -> std::remove_reference_t<UnderlyingType>& {
+  constexpr auto unwrap() & noexcept -> std::remove_reference_t<UnderlyingType>&
+    requires(!std::is_const_v<std::remove_reference_t<UnderlyingType>>)
+  {
     return _m_do_not_use_only_public_to_make_usable_as_nttp.unwrap();
   }
 
@@ -859,20 +860,10 @@ public:
   ///
   /// \param value The boolean value to initialize the \c boolean_type with.
   /// \throws Nothing.
-  constexpr explicit boolean_type(T value) noexcept : base_type(value) {}
-
-  template <cxx_boolean U>
-    requires std::constructible_from<T, U&>
-  constexpr boolean_type(boolean_type<Tag, U> other) noexcept
-      : base_type(other.unwrap()) {}
-
-  template <cxx_boolean U>
-    requires std::assignable_from<T, U&>
-  constexpr auto operator=(boolean_type<Tag, U> other) noexcept
-      -> boolean_type& {
-    this->unwrap() = other.unwrap();
-    return *this;
-  }
+  template <typename U = T>
+    requires std::convertible_to<U, T> && (!strong_type_like<U>)
+  constexpr explicit boolean_type(U&& value) noexcept
+      : base_type(std::forward<U>(value)) {}
 
   constexpr explicit operator bool() const noexcept { return this->unwrap(); }
 
@@ -944,17 +935,10 @@ public:
   /// \param value The value to construct the \c integral_type from.
   template <cxx_arithmetic_integral U>
     requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
-                                              std::remove_reference_t<T>>
-  constexpr explicit signed_integral_type(U value) noexcept
-      : base_type(static_cast<T>(value)) {}
-
-  template <cxx_arithmetic_integral U>
-    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
                                               std::remove_reference_t<T>> &&
-             std::constructible_from<T, U&>
-  constexpr explicit signed_integral_type(
-      signed_integral_type<Tag, U> other) noexcept
-      : base_type(static_cast<T>(other.unwrap())) {}
+             (!strong_type_like<U>) && std::convertible_to<U, T>
+  constexpr explicit signed_integral_type(U&& value) noexcept
+      : base_type(std::forward<U>(value)) {}
 };
 
 template <typename Tag, cxx_arithmetic_integral T>
@@ -983,9 +967,11 @@ public:
   using rebind = bitwise_signed_integral_type<NewTag, T>;
 
   template <typename U>
-    requires non_narrowing_integer_conversion<U, T>
-  constexpr explicit bitwise_signed_integral_type(const U value) noexcept
-      : base_type(static_cast<T>(value)) {}
+    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
+                                              std::remove_reference_t<T>> &&
+             (!strong_type_like<U>) && std::convertible_to<U, T>
+  constexpr explicit bitwise_signed_integral_type(U&& value) noexcept
+      : base_type(std::forward<U>(value)) {}
 };
 
 template <typename Tag, cxx_unsigned_integral T>
@@ -1013,9 +999,11 @@ public:
   template <typename NewTag> using rebind = unsigned_integral_type<NewTag, T>;
 
   template <typename U>
-    requires non_narrowing_integer_conversion<U, T>
-  constexpr explicit unsigned_integral_type(const U value) noexcept
-      : base_type(static_cast<T>(value)) {}
+    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
+                                              std::remove_reference_t<T>> &&
+             (!strong_type_like<U>) && std::convertible_to<U, T>
+  constexpr explicit unsigned_integral_type(U&& value) noexcept
+      : base_type(std::forward<U>(value)) {}
 };
 
 template <typename Tag, std::floating_point T>
@@ -1037,9 +1025,11 @@ public:
   template <typename NewTag> using rebind = floating_point_type<NewTag, T>;
 
   template <typename U>
-    requires non_narrowing_floating_point_conversion<U, T>
-  constexpr explicit floating_point_type(const U value) noexcept
-      : base_type(static_cast<T>(value)) {}
+    requires non_narrowing_floating_point_conversion<
+                 std::remove_reference_t<U>, std::remove_reference_t<T>> &&
+             (!strong_type_like<U>) && std::convertible_to<U, T>
+  constexpr explicit floating_point_type(U&& value) noexcept
+      : base_type(std::forward<U>(value)) {}
 
   constexpr auto
   is_approximately_equal(const floating_point_type /*other*/) const noexcept
@@ -1224,13 +1214,11 @@ template <typename Tag, cxx_nullable_pointer Pointer>
 class pointer_type
     : public strong_type<Tag, Pointer>,
       public equality_comparison::skill<pointer_type<Tag, Pointer>>,
-      public three_way_comparison::skill<pointer_type<Tag, Pointer>>,
       public output_stream::skill<pointer_type<Tag, Pointer>>,
       public dereference::skill<pointer_type<Tag, Pointer>> {
   using base_type = strong_type<Tag, Pointer>;
 
 public:
-  using pointer = Pointer;
   using element_type = std::pointer_traits<Pointer>::element_type;
 
   template <typename NewTag> using rebind = pointer_type<NewTag, Pointer>;
@@ -1241,11 +1229,16 @@ public:
     requires std::convertible_to<U*, Pointer>
   constexpr explicit pointer_type(U* const ptr) noexcept : base_type(ptr) {}
 
+  constexpr auto operator=(std::nullptr_t) noexcept -> pointer_type& {
+    this->unwrap() = nullptr;
+    return *this;
+  }
+
   constexpr explicit operator bool() const noexcept {
     return this->unwrap() != nullptr;
   }
 
-  constexpr auto operator->() const noexcept -> pointer {
+  constexpr auto operator->() const noexcept -> Pointer {
     return this->unwrap();
   }
 
@@ -1369,6 +1362,13 @@ private:
   }
 };
 
+template <typename Tag, typename T, typename... Args>
+auto make_unique(Args&&... args)
+    -> unique_ptr_type<Tag, T, std::default_delete<T>> {
+  return unique_ptr_type<Tag, T, std::default_delete<T>>(
+      std::make_unique<T>(std::forward<Args>(args)...));
+}
+
 template <typename Tag, typename T>
 struct shared_ptr_type
     : public strong_type<Tag, std::shared_ptr<T>>,
@@ -1377,6 +1377,15 @@ struct shared_ptr_type
       public output_stream::skill<shared_ptr_type<Tag, T>>,
       public dereference::skill<shared_ptr_type<Tag, T>> {
   using base_type = strong_type<Tag, std::shared_ptr<T>>;
+
+public:
+  using pointer = pointer_type<Tag, typename std::shared_ptr<T>::pointer>;
+  using element_type = std::shared_ptr<T>::element_type;
+
+  template <typename NewTag> using rebind = shared_ptr_type<NewTag, T>;
+
+  constexpr shared_ptr_type(std::nullptr_t) noexcept
+      : base_type(std::in_place, nullptr) {}
 };
 
 // --- Container Types ---
@@ -1521,6 +1530,20 @@ public:
   }
 };
 
+namespace _detail {
+template <typename C>
+concept supports_front = requires(C& c, const C& cc) {
+  { c.front() } -> std::same_as<typename C::reference>;
+  { cc.front() } -> std::same_as<typename C::const_reference>;
+};
+
+template <typename C>
+concept supports_back = requires(C& c, const C& cc) {
+  { c.back() } -> std::same_as<typename C::reference>;
+  { cc.back() } -> std::same_as<typename C::const_reference>;
+};
+} // namespace _detail
+
 template <typename Tag, cxx_sequence_container Container>
 class sequence_container_type : public strong_type<Tag, Container>,
                                 public equality_comparison::skill<
@@ -1595,6 +1618,84 @@ public:
 
   [[nodiscard]] constexpr auto empty() const -> bool {
     return this->unwrap().empty();
+  }
+
+  template <typename... Args>
+  constexpr auto emplace(const_iterator pos, Args&&... args) -> iterator {
+    return iterator(
+        this->unwrap().emplace(pos.m_itr, std::forward<Args>(args)...));
+  }
+
+  constexpr auto insert(const_iterator pos, const value_type& value)
+      -> iterator {
+    return iterator(this->unwrap().insert(pos.m_itr, value));
+  }
+
+  constexpr auto insert(const_iterator pos, value_type&& value) -> iterator {
+    return iterator(this->unwrap().insert(pos.m_itr, std::move(value)));
+  }
+
+  constexpr auto insert(const_iterator pos, const size_type n,
+                        const value_type& value) -> iterator {
+    return iterator(this->unwrap().insert(pos.m_itr, n, value));
+  }
+
+  template <typename InputIterator>
+  constexpr auto insert(const_iterator pos, InputIterator first,
+                        InputIterator last) -> iterator {
+    return iterator(this->unwrap().insert(pos.m_itr, first, last));
+  }
+
+  constexpr auto insert(const_iterator pos,
+                        std::initializer_list<value_type> il) -> iterator {
+    return iterator(this->unwrap().insert(pos.m_itr, il));
+  }
+
+  constexpr auto erase(const_iterator pos) -> iterator {
+    return iterator(this->unwrap().erase(pos.m_itr));
+  }
+
+  constexpr auto erase(const_iterator first, const_iterator last) -> iterator {
+    return iterator(this->unwrap().erase(first.m_itr, last.m_itr));
+  }
+
+  constexpr auto clear() -> void { this->unwrap().clear(); }
+
+  template <typename InputIterator>
+  constexpr auto assign(InputIterator first, InputIterator last) -> void {
+    this->unwrap().assign(first, last);
+  }
+
+  constexpr auto assign(std::initializer_list<value_type> il) -> void {
+    this->unwrap().assign(il);
+  }
+
+  constexpr auto assign(const size_type n, const value_type& value) -> void {
+    this->unwrap().assign(n, value);
+  }
+
+  constexpr auto front() -> reference
+    requires _detail::supports_front<Container>
+  {
+    return this->unwrap().front();
+  }
+
+  constexpr auto front() const -> const_reference
+    requires _detail::supports_front<Container>
+  {
+    return this->unwrap().front();
+  }
+
+  constexpr auto back() -> reference
+    requires _detail::supports_back<Container>
+  {
+    return this->unwrap().back();
+  }
+
+  constexpr auto back() const -> const_reference
+    requires _detail::supports_back<Container>
+  {
+    return this->unwrap().back();
   }
 };
 
@@ -1680,16 +1781,52 @@ struct new_type_impl<Tag, Ptr, owning_pointer> {
   using type = unique_ptr_type<Tag, std::remove_pointer_t<Ptr>>;
 };
 
-template <typename Tag, cxx_allocator_aware_container Container>
+template <typename, typename> class selected_container_type;
+
+template <typename Tag, typename Container>
+  requires cxx_container<Container>
+class selected_container_type<Tag, Container>
+    : public container_type<Tag, Container> {
+public:
+  template <typename NewTag>
+  using rebind = selected_container_type<NewTag, Container>;
+  using container_type<Container, Tag>::container_type;
+};
+
+template <typename Tag, typename Container>
+  requires cxx_allocator_aware_container<Container>
+class selected_container_type<Tag, Container>
+    : public allocator_aware_container_type<Tag, Container>,
+      public container_type<Tag, Container> {
+public:
+  template <typename NewTag>
+  using rebind = selected_container_type<NewTag, Container>;
+  using allocator_aware_container_type<Container,
+                                       Tag>::allocator_aware_container_type;
+  using container_type<Container, Tag>::container_type;
+};
+
+template <typename Tag, typename Container>
   requires cxx_sequence_container<Container>
-class selected_container_type
+class selected_container_type<Tag, Container>
+    : public sequence_container_type<Tag, Container> {
+public:
+  template <typename NewTag>
+  using rebind = selected_container_type<NewTag, Container>;
+  using sequence_container_type<Container, Tag>::sequence_container_type;
+};
+
+template <typename Tag, typename Container>
+  requires cxx_allocator_aware_container<Container> &&
+               cxx_sequence_container<Container>
+class selected_container_type<Tag, Container>
     : public allocator_aware_container_type<Tag, Container>,
       public sequence_container_type<Tag, Container> {
 public:
   template <typename NewTag>
   using rebind = selected_container_type<NewTag, Container>;
   using allocator_aware_container_type<Container,
-                                       Tag>::allocator_aware_container;
+                                       Tag>::allocator_aware_container_type;
   using sequence_container_type<Container, Tag>::sequence_container_type;
 };
 

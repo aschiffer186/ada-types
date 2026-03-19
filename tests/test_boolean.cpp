@@ -35,6 +35,10 @@ TEST(TestBoolean, TestCinaConcepts) {
   struct Type : cina::boolean_type<Type, bool> {};
   EXPECT_TRUE(cina::strong_type_like<Type>);
   EXPECT_TRUE((std::same_as<cina::underlying_type<Type>, bool>));
+
+  using boolean_type2 = cina::boolean_type<struct BooleanType2, bool&>;
+  EXPECT_TRUE(cina::strong_type_like<boolean_type2>);
+  EXPECT_TRUE((std::same_as<cina::underlying_type<boolean_type2>, bool&>));
 }
 
 TEST(TestBoolean, TestConstructor) {
@@ -57,16 +61,6 @@ TEST(TestBoolean, TestConstructor) {
   boolean_type::const_reference ref2{b};
   EXPECT_TRUE(ref2.unwrap());
 
-  boolean_type b3{true};
-  EXPECT_TRUE(b3.unwrap());
-  boolean_reference ref3{b3};
-  const bool b5 = ref3.unwrap();
-  EXPECT_EQ(b5, true);
-
-  boolean_type::const_reference ref4{b3};
-  const bool b6 = ref4.unwrap();
-  EXPECT_EQ(b6, true);
-
   EXPECT_FALSE((std::constructible_from<boolean_type::reference, const bool&>));
 }
 
@@ -82,11 +76,6 @@ TEST(TestBoolean, TestAssignment) {
   ref.unwrap() = false;
   EXPECT_FALSE(b);
   EXPECT_FALSE(ref.unwrap());
-
-  boolean_type1 b1{true};
-  ref = b1;
-  EXPECT_TRUE(ref.unwrap());
-  EXPECT_TRUE(b);
 }
 
 TEST(TestBoolean, TestFormat) {
@@ -99,8 +88,6 @@ TEST(TestBoolean, TestFormat) {
   boolean_type::reference ref{b};
   const std::string str2 = std::format("{}", ref);
   EXPECT_STREQ(str2.c_str(), "true");
-
-  // const boolean_type b2{true};
 }
 
 TEST(TestBoolean, TestHash) {

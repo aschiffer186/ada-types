@@ -51,11 +51,6 @@ TEST(TestIntegerType, TestConstructor) {
   int_type::reference ref{i};
   int& i2 = ref.unwrap();
   EXPECT_EQ(i2, 42);
-
-  int_type i3{42};
-  int_type::const_reference ref2{i3};
-  const int& i4 = ref2.unwrap();
-  EXPECT_EQ(i4, 42);
 }
 
 TEST(TestIntegerType, TestAssignment) {
@@ -64,6 +59,12 @@ TEST(TestIntegerType, TestAssignment) {
 
   EXPECT_FALSE((std::assignable_from<int_type1, int_type2>));
   EXPECT_FALSE((std::assignable_from<int_type1, int>));
+
+  using int_type3 = cina::signed_integral_type<struct IntType3, int&>;
+  int i{42};
+  int_type3 ref{i};
+  ref.unwrap() = 10;
+  EXPECT_EQ(i, 10);
 }
 
 TEST(TestIntegerType, TestCinaConcepts) {
