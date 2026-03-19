@@ -19,3 +19,7 @@ gtest_discover_tests(test_pointer_type)
 add_executable(test_strong_type_base test_strong_type_base.cpp)
 target_link_libraries(test_strong_type_base PRIVATE ${PROJECT_NAME} GTest::gtest_main)
 gtest_discover_tests(test_strong_type_base)
+
+add_executable(test_vector_like_container test_vector_like_container.cpp)
+target_link_libraries(test_vector_like_container PRIVATE ${PROJECT_NAME} GTest::gtest_main)
+gtest_discover_tests(test_vector_like_container)

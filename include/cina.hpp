@@ -6,15 +6,16 @@
 #include <concepts>         // same_as
 #include <format>           // formatter
 #include <initializer_list> // initializer_list
-#include <limits>           // numeric_limits
-#include <memory>           // unique_ptr
-#include <ostream>          // ostream
-#include <stdexcept>        // runtime_error
-#include <string>           // string
-#include <string_view>      // string_view
-#include <type_traits>      // remove_cvref_t, other traits
-#include <utility>          // in_place, in_place_t
-#include <version>          // version macros
+#include <iterator>
+#include <limits>      // numeric_limits
+#include <memory>      // unique_ptr
+#include <ostream>     // ostream
+#include <stdexcept>   // runtime_error
+#include <string>      // string
+#include <string_view> // string_view
+#include <type_traits> // remove_cvref_t, other traits
+#include <utility>     // in_place, in_place_t
+#include <version>     // version macros
 
 #if defined(__cpp_lib_constexpr_memory) && __cpp_lib_constexpr_memory >= 202202L
 #define CINA_POINTER_CONSTEXPR constexpr
@@ -142,6 +143,12 @@ concept cxx_sequence_container =
       { v.insert(p, t) } -> std::same_as<typename C::iterator>;
       { v.insert(p, rt) } -> std::same_as<typename C::iterator>;
     };
+
+template <typename C>
+concept cxx_reversible_container = cxx_container<C> && requires(C c) {
+  typename C::reverse_iterator;
+  typename C::const_reverse_iterator;
+};
 
 /// \brief Concept indicating that a conversion between two integer types is
 /// non-narrowing.
@@ -619,7 +626,9 @@ template <typename...> constexpr bool dependent_false = false;
 
 template <typename T> class strong_type_storage {
 public:
-  strong_type_storage() = default;
+  strong_type_storage()
+    requires std::is_default_constructible_v<T>
+  = default;
 
   template <typename U>
   constexpr explicit strong_type_storage(U&& value)
@@ -712,8 +721,7 @@ public:
   /// \throws Any exceptions thrown by the default constructor of \c
   /// UnderlyingType.
   constexpr strong_type()
-    requires std::is_default_constructible_v<UnderlyingType> &&
-                 (!std::is_reference_v<UnderlyingType>)
+    requires std::is_default_constructible_v<UnderlyingType>
   = default;
 
   /// \brief Constructor
@@ -847,10 +855,6 @@ class boolean_type : public strong_type<Tag, T>,
 public:
   template <typename NewTag> using rebind = boolean_type<NewTag, T>;
 
-  using reference = boolean_type<Tag, std::add_lvalue_reference_t<T>>;
-  using const_reference =
-      boolean_type<Tag, std::add_lvalue_reference_t<std::add_const_t<T>>>;
-
   /// \brief Constructors
   ///
   /// Initializes the underlying boolean value of the \c boolean_type.
@@ -861,7 +865,7 @@ public:
   /// \param value The boolean value to initialize the \c boolean_type with.
   /// \throws Nothing.
   template <typename U = T>
-    requires std::convertible_to<U, T> && (!strong_type_like<U>)
+    requires std::convertible_to<U, T>
   constexpr explicit boolean_type(U&& value) noexcept
       : base_type(std::forward<U>(value)) {}
 
@@ -920,10 +924,6 @@ class signed_integral_type
 public:
   template <typename NewTag> using rebind = signed_integral_type<NewTag, T>;
 
-  using reference = signed_integral_type<Tag, std::add_lvalue_reference_t<T>>;
-  using const_reference =
-      signed_integral_type<Tag,
-                           std::add_lvalue_reference_t<std::add_const_t<T>>>;
   /// \brief Constructor
   ///
   /// Constructs a \c integral_type from the specified value.
@@ -1086,8 +1086,11 @@ public:
   constexpr static bounded_integral_type max{Max};
 
   template <typename U>
-  constexpr explicit bounded_integral_type(const U value)
-      : base_type(static_cast<T>(value)) {
+    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
+                                              std::remove_reference_t<T>> &&
+             (!strong_type_like<U>) && std::convertible_to<U, T>
+  constexpr explicit bounded_integral_type(U&& value)
+      : base_type(std::forward<U>(value)) {
     constexpr U min_input_value = std::numeric_limits<U>::min();
     constexpr U max_input_value = std::numeric_limits<U>::max();
 
@@ -1457,6 +1460,21 @@ public:
   using const_iterator =
       _detail::const_iterator<typename Container::const_iterator, Tag>;
 
+  constexpr container_type()
+    requires std::is_default_constructible_v<Container>
+  = default;
+
+  constexpr container_type(const Container& container)
+      : strong_type<Tag, Container>(container) {}
+
+  constexpr container_type(Container&& container)
+      : strong_type<Tag, Container>(std::move(container)) {}
+
+  template <typename... Args>
+  constexpr container_type(std::in_place_t, Args&&... args)
+      : strong_type<Tag, Container>(std::in_place,
+                                    std::forward<Args>(args)...) {}
+
   constexpr auto begin() -> iterator {
     return iterator(this->unwrap().begin());
   }
@@ -1498,38 +1516,6 @@ public:
   }
 };
 
-template <typename Tag, cxx_allocator_aware_container Container>
-class allocator_aware_container_type : public strong_type<Tag, Container> {
-  using base_type = strong_type<Tag, Container>;
-
-public:
-  using allocator_type = typename Container::allocator_type;
-
-  constexpr allocator_aware_container_type(const allocator_type& allocator)
-      : base_type(std::in_place, allocator) {}
-
-  constexpr allocator_aware_container_type(const Container& container,
-                                           const allocator_type& allocator)
-      : base_type(std::in_place, container, allocator) {}
-
-  constexpr allocator_aware_container_type(Container&& container,
-                                           const allocator_type& allocator)
-      : base_type(std::in_place, std::move(container), allocator) {}
-
-  constexpr allocator_aware_container_type(
-      const allocator_aware_container_type& other,
-      const allocator_type& allocator)
-      : base_type(std::in_place, other.unwrap(), allocator) {}
-
-  constexpr allocator_aware_container_type(
-      allocator_aware_container_type&& other, const allocator_type& allocator)
-      : base_type(std::in_place, std::move(other).unwrap(), allocator) {}
-
-  constexpr auto get_allocator() const -> allocator_type {
-    return this->unwrap().get_allocator();
-  }
-};
-
 namespace _detail {
 template <typename C>
 concept supports_front = requires(C& c, const C& cc) {
@@ -1545,22 +1531,16 @@ concept supports_back = requires(C& c, const C& cc) {
 } // namespace _detail
 
 template <typename Tag, cxx_sequence_container Container>
-class sequence_container_type : public strong_type<Tag, Container>,
-                                public equality_comparison::skill<
-                                    sequence_container_type<Tag, Container>>,
-                                public three_way_comparison::skill<
-                                    sequence_container_type<Tag, Container>> {
-  using base_type = strong_type<Tag, Container>;
+class sequence_container_type : public container_type<Tag, Container> {
+  using base_type = container_type<Tag, Container>;
 
 public:
-  using value_type = Container::value_type;
-  using reference = Container::reference;
-  using const_reference = Container::const_reference;
-  using size_type = Container::size_type;
-  using difference_type = Container::difference_type;
-  using iterator = _detail::iterator<typename Container::iterator, Tag>;
-  using const_iterator =
-      _detail::const_iterator<typename Container::const_iterator, Tag>;
+  using value_type = typename Container::value_type;
+  using reference = typename Container::reference;
+  using const_reference = typename Container::const_reference;
+  using size_type = typename Container::size_type;
+  using iterator = typename Container::const_iterator;
+  using const_iterator = typename Container::const_iterator;
 
   constexpr sequence_container_type() = default;
 
@@ -1579,46 +1559,6 @@ public:
 
   constexpr sequence_container_type(std::initializer_list<value_type> il)
       : base_type(std::in_place, il) {}
-
-  constexpr auto begin() -> iterator {
-    return iterator(this->unwrap().begin());
-  }
-
-  constexpr auto begin() const -> const_iterator {
-    return const_iterator(this->unwrap().begin());
-  }
-
-  constexpr auto cbegin() const -> const_iterator {
-    return const_iterator(this->unwrap().cbegin());
-  }
-
-  constexpr auto end() -> iterator { return iterator(this->unwrap().end()); }
-
-  constexpr auto end() const -> const_iterator {
-    return const_iterator(this->unwrap().end());
-  }
-
-  constexpr auto cend() const -> const_iterator {
-    return const_iterator(this->unwrap().cend());
-  }
-
-  constexpr auto swap(sequence_container_type& other) -> void {
-    this->unwrap().swap(other.unwrap());
-  }
-
-  constexpr auto size() const -> size_type
-    requires _detail::has_size<Container>
-  {
-    return this->unwrap().size();
-  }
-
-  constexpr auto max_size() const -> size_type {
-    return this->unwrap().max_size();
-  }
-
-  [[nodiscard]] constexpr auto empty() const -> bool {
-    return this->unwrap().empty();
-  }
 
   template <typename... Args>
   constexpr auto emplace(const_iterator pos, Args&&... args) -> iterator {
@@ -1696,6 +1636,54 @@ public:
     requires _detail::supports_back<Container>
   {
     return this->unwrap().back();
+  }
+
+protected:
+  template <typename... Args>
+  constexpr sequence_container_type(std::in_place_t, Args&&... args)
+      : base_type(std::in_place, std::forward<Args>(args)...) {}
+};
+
+template <typename Tag, typename Container>
+  requires cxx_allocator_aware_container<Container> &&
+           cxx_sequence_container<Container>
+class allocator_aware_sequence_container_type
+    : public sequence_container_type<Tag, Container> {
+  using base_type = sequence_container_type<Tag, Container>;
+
+public:
+  using value_type = base_type::value_type;
+  using reference = base_type::reference;
+  using const_reference = base_type::const_reference;
+  using size_type = base_type::size_type;
+  using iterator = base_type::iterator;
+  using const_iterator = base_type::const_iterator;
+  using allocator_type = Container::allocator_type;
+
+  using base_type::base_type;
+
+  constexpr allocator_aware_sequence_container_type()
+    requires std::is_default_constructible_v<allocator_type>
+      : allocator_aware_sequence_container_type(allocator_type()) {}
+
+  constexpr allocator_aware_sequence_container_type(const allocator_type& alloc)
+      : base_type(std::in_place, alloc) {}
+
+  constexpr allocator_aware_sequence_container_type(const size_type n,
+                                                    const value_type& value,
+                                                    const allocator_type& alloc)
+      : base_type(std::in_place, n, value, alloc) {}
+
+  template <typename InputIt>
+  constexpr allocator_aware_sequence_container_type(InputIt first, InputIt last,
+                                                    const allocator_type& alloc)
+      : base_type(std::in_place, first, last, alloc) {}
+
+  constexpr allocator_aware_sequence_container_type(
+      std::initializer_list<value_type> il, const allocator_type& alloc) {}
+
+  constexpr auto get_allocator() const -> typename Container::allocator_type {
+    return this->unwrap().get_allocator();
   }
 };
 
@@ -1794,40 +1782,26 @@ public:
 };
 
 template <typename Tag, typename Container>
-  requires cxx_allocator_aware_container<Container>
-class selected_container_type<Tag, Container>
-    : public allocator_aware_container_type<Tag, Container>,
-      public container_type<Tag, Container> {
-public:
-  template <typename NewTag>
-  using rebind = selected_container_type<NewTag, Container>;
-  using allocator_aware_container_type<Container,
-                                       Tag>::allocator_aware_container_type;
-  using container_type<Container, Tag>::container_type;
-};
-
-template <typename Tag, typename Container>
   requires cxx_sequence_container<Container>
 class selected_container_type<Tag, Container>
     : public sequence_container_type<Tag, Container> {
 public:
   template <typename NewTag>
   using rebind = selected_container_type<NewTag, Container>;
-  using sequence_container_type<Container, Tag>::sequence_container_type;
+  using sequence_container_type<Tag, Container>::sequence_container_type;
 };
 
 template <typename Tag, typename Container>
   requires cxx_allocator_aware_container<Container> &&
-               cxx_sequence_container<Container>
+           cxx_sequence_container<Container>
 class selected_container_type<Tag, Container>
-    : public allocator_aware_container_type<Tag, Container>,
-      public sequence_container_type<Tag, Container> {
+    : public allocator_aware_sequence_container_type<Tag, Container> {
 public:
   template <typename NewTag>
   using rebind = selected_container_type<NewTag, Container>;
-  using allocator_aware_container_type<Container,
-                                       Tag>::allocator_aware_container_type;
-  using sequence_container_type<Container, Tag>::sequence_container_type;
+
+  using allocator_aware_sequence_container_type<
+      Tag, Container>::allocator_aware_sequence_container_type;
 };
 
 template <typename Tag, cxx_allocator_aware_container Container>

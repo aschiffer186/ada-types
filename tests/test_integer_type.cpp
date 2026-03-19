@@ -65,6 +65,7 @@ TEST(TestIntegerType, TestAssignment) {
   int_type3 ref{i};
   ref.unwrap() = 10;
   EXPECT_EQ(i, 10);
+  EXPECT_EQ(ref.unwrap(), 10);
 }
 
 TEST(TestIntegerType, TestCinaConcepts) {

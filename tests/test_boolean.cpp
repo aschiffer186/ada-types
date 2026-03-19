@@ -53,15 +53,19 @@ TEST(TestBoolean, TestConstructor) {
   EXPECT_FALSE((std::convertible_to<bool, boolean_type>));
   EXPECT_FALSE((std::convertible_to<boolean_type, bool>));
 
-  using boolean_reference = boolean_type::reference;
+  using boolean_reference = cina::boolean_type<struct BooleanType3, bool&>;
   bool b{true};
   boolean_reference ref{b};
   EXPECT_TRUE(ref.unwrap());
 
-  boolean_type::const_reference ref2{b};
+  cina::boolean_type<struct BooleanType4, const bool&> ref2{b};
   EXPECT_TRUE(ref2.unwrap());
 
   EXPECT_FALSE((std::constructible_from<boolean_type::reference, const bool&>));
+
+  using boolean_reference2 = cina::boolean_type<struct BooleanType5, bool&>;
+  EXPECT_FALSE(
+      (std::constructible_from<boolean_reference, boolean_reference2>));
 }
 
 TEST(TestBoolean, TestAssignment) {
@@ -70,12 +74,15 @@ TEST(TestBoolean, TestAssignment) {
 
   EXPECT_FALSE((std::assignable_from<boolean_type1, boolean_type2>));
 
-  using boolean_reference = boolean_type1::reference;
+  using boolean_reference = cina::boolean_type<struct BooleanType3, bool&>;
   bool b{true};
   boolean_reference ref{b};
   ref.unwrap() = false;
   EXPECT_FALSE(b);
   EXPECT_FALSE(ref.unwrap());
+
+  using boolean_reference2 = cina::boolean_type<struct BooleanType4, bool&>;
+  EXPECT_FALSE((std::assignable_from<boolean_reference, boolean_reference2>));
 }
 
 TEST(TestBoolean, TestFormat) {
@@ -84,10 +91,24 @@ TEST(TestBoolean, TestFormat) {
   const std::string str = std::format("{}", boolean_type{true});
   EXPECT_STREQ(str.c_str(), "true");
 
+  using boolean_reference = cina::boolean_type<struct BooleanType2, bool&>;
+
   bool b{true};
-  boolean_type::reference ref{b};
+  boolean_reference ref{b};
   const std::string str2 = std::format("{}", ref);
   EXPECT_STREQ(str2.c_str(), "true");
+
+  using boolean_reference2 =
+      cina::boolean_type<struct BooleanType3, const bool&>;
+  boolean_reference2 ref2{b};
+  const std::string str3 = std::format("{}", ref2);
+  EXPECT_STREQ(str3.c_str(), "true");
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const std::string str4 = std::format("{}", Type{false});
+  EXPECT_STREQ(str4.c_str(), "false");
 }
 
 TEST(TestBoolean, TestHash) {
@@ -100,6 +121,12 @@ TEST(TestBoolean, TestHash) {
 
   EXPECT_EQ(hash1, std::hash<bool>{}(true));
   EXPECT_EQ(hash2, std::hash<bool>{}(false));
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const std::size_t hash3 = std::hash<Type>{}(Type{true});
+  EXPECT_EQ(hash3, std::hash<bool>{}(true));
 }
 
 TEST(TestBoolean, TestEquality) {
@@ -116,6 +143,30 @@ TEST(TestBoolean, TestEquality) {
 
   using boolean_type2 = cina::boolean_type<struct BooleanType2, bool>;
   EXPECT_FALSE((std::equality_comparable_with<boolean_type, boolean_type2>));
+
+  using boolean_reference = cina::boolean_type<struct BooleanType3, bool&>;
+  bool b3{true};
+  boolean_reference ref{b3};
+
+  bool b4{false};
+  boolean_reference ref2{b4};
+  EXPECT_EQ(ref, ref);
+  EXPECT_NE(ref, ref2);
+
+  using const_boolean_reference =
+      cina::boolean_type<struct BooleanType4, const bool&>;
+  const_boolean_reference cref{b3};
+  const_boolean_reference cref2{b4};
+  EXPECT_EQ(cref, cref);
+  EXPECT_NE(cref, cref2);
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const Type t1{true};
+  const Type t2{false};
+  EXPECT_EQ(t1, t1);
+  EXPECT_NE(t1, t2);
 }
 
 TEST(TestBoolean, TestLess) {
