@@ -48,7 +48,7 @@ TEST(TestIntegerType, TestConstructor) {
   EXPECT_FALSE((std::convertible_to<int_type, int>));
 
   int i{42};
-  int_type::reference ref{i};
+  cina::signed_integral_type<struct IntType2, int&> ref{i};
   int& i2 = ref.unwrap();
   EXPECT_EQ(i2, 42);
 }
@@ -81,6 +81,20 @@ TEST(TestIntegerType, TestCinaConcepts) {
   EXPECT_TRUE(cina::integral<Type>);
   EXPECT_TRUE(cina::arithmetic<Type>);
   EXPECT_TRUE((std::same_as<cina::underlying_type<Type>, int>));
+
+  using int_reference = cina::signed_integral_type<struct Tag, int&>;
+  EXPECT_TRUE(cina::strong_type_like<int_reference>);
+  EXPECT_TRUE(cina::integral<int_reference>);
+  EXPECT_TRUE(cina::arithmetic<int_reference>);
+  EXPECT_TRUE((std::same_as<cina::underlying_type<int_reference>, int&>));
+
+  using const_int_reference =
+      cina::signed_integral_type<struct Tag2, const int&>;
+  EXPECT_TRUE(cina::strong_type_like<const_int_reference>);
+  EXPECT_TRUE(cina::integral<int_reference>);
+  EXPECT_TRUE(cina::arithmetic<int_reference>);
+  EXPECT_TRUE(
+      (std::same_as<cina::underlying_type<const_int_reference>, const int&>));
 }
 
 TEST(TestIntegerType, TestFormat) {
@@ -89,6 +103,16 @@ TEST(TestIntegerType, TestFormat) {
   const std::string str =
       std::format("{}", int_type{static_cast<std::int8_t>(42)});
   EXPECT_STREQ(str.c_str(), "42");
+
+  using int_reference = cina::signed_integral_type<struct Tag, int&>;
+  int i{42};
+  const std::string str2 = std::format("{}", int_reference{i});
+  EXPECT_STREQ(str2.c_str(), "42");
+
+  using const_int_reference =
+      cina::signed_integral_type<struct Tag2, const int&>;
+  const std::string str3 = std::format("{}", const_int_reference{i});
+  EXPECT_STREQ(str3.c_str(), "42");
 }
 
 TEST(TestIntegerType, TestHash) {
@@ -115,6 +139,22 @@ TEST(TestIntegerType, TestEquality) {
 
   using int_type2 = cina::signed_integral_type<struct IntType2, int>;
   EXPECT_FALSE((std::equality_comparable_with<int_type, int_type2>));
+
+  using int_reference = cina::signed_integral_type<struct IntType2, int&>;
+  int val{42};
+  int val2{43};
+  int_reference ref{val};
+  int_reference ref2{val2};
+
+  EXPECT_EQ(ref, ref);
+  EXPECT_NE(ref, ref2);
+
+  using const_int_reference =
+      cina::signed_integral_type<struct IntType3, const int&>;
+  const_int_reference cref{val};
+  const_int_reference cref2{val2};
+  EXPECT_EQ(cref, cref);
+  EXPECT_NE(cref, cref2);
 }
 
 TEST(TestIntegerType, TestComparison) {

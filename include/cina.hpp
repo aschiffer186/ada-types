@@ -35,6 +35,12 @@
 #define CINA_CMATH_CONSTEXPR
 #endif
 
+#if defined(_MSC_VER) && _MSC_VER >= 1910
+#define CINA_EBO __declspec(empty_bases)
+#else
+#define CINA_EBO
+#endif
+
 namespace cina {
 
 // --- C++ Concepts ---
@@ -240,7 +246,7 @@ concept strong_type_like = _detail::is_strong_type_impl<std::remove_cvref_t<T>>;
 /// library.
 ///
 /// \tparam T The strong type to compute the underlying type of.
-template <strong_type_like T>
+template <typename T>
 using underlying_type =
     decltype(_detail::_get_underlying_type(std::declval<T>()));
 
@@ -621,6 +627,18 @@ struct dereference {
   };
 };
 
+struct invoke {
+  template <typename Derived> struct skill {
+    template <typename... Args>
+    constexpr auto operator()(Args&&... args) const noexcept(
+        noexcept(std::invoke(static_cast<const Derived&>(*this).unwrap(),
+                             std::forward<Args>(args)...))) -> decltype(auto) {
+      return std::invoke(static_cast<const Derived&>(*this).unwrap(),
+                         std::forward<Args>(args)...);
+    }
+  };
+};
+
 namespace _detail {
 template <typename...> constexpr bool dependent_false = false;
 
@@ -695,20 +713,16 @@ public:
 } // namespace _detail
 
 template <typename Tag, typename UnderlyingType>
-class strong_type
+class CINA_EBO strong_type
     : public equality_comparison::skill<strong_type<Tag, UnderlyingType>> {
 public:
   /// Type alias for the underlying type.
   using underlying_type = UnderlyingType;
   /// Type alias for the tag type.
   using tag = Tag;
-
+  /// Type alias for a strong type with the same underlying type but a different
+  /// tag.
   template <typename NewTag> using rebind = strong_type<NewTag, UnderlyingType>;
-
-  using reference =
-      strong_type<Tag, std::add_lvalue_reference_t<UnderlyingType>>;
-  using const_reference = strong_type<
-      Tag, std::add_lvalue_reference_t<std::add_const_t<UnderlyingType>>>;
 
   /// \brief Default constructor.
   ///
@@ -803,6 +817,9 @@ public:
       : _m_do_not_use_only_public_to_make_usable_as_nttp(
             std::in_place, il, std::forward<Args>(args)...) {}
 
+  /// \brief Returns a reference to the underlying value.
+  ///
+  /// \return A reference to the underlying value.
   constexpr auto unwrap() & noexcept -> std::remove_reference_t<UnderlyingType>&
     requires(!std::is_const_v<std::remove_reference_t<UnderlyingType>>)
   {
@@ -817,13 +834,23 @@ public:
     return _m_do_not_use_only_public_to_make_usable_as_nttp.unwrap();
   }
 
+  /// \brief Returns an rvalue reference to the underlying value.
+  ///
+  /// \return An rvalue reference to the underlying value.
   constexpr auto unwrap() && noexcept
-      -> std::remove_reference_t<UnderlyingType>&& {
+      -> std::remove_reference_t<UnderlyingType>&&
+    requires(!std::is_lvalue_reference_v<UnderlyingType>)
+  {
     return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp).unwrap();
   }
 
+  /// \brief Returns a const-rvalue reference to the underlying value.
+  ///
+  /// \return A const-rvalue reference to the underlying value.
   constexpr auto unwrap() const&& noexcept
-      -> const std::remove_reference_t<UnderlyingType>&& {
+      -> const std::remove_reference_t<UnderlyingType>&&
+    requires(!std::is_lvalue_reference_v<UnderlyingType>)
+  {
     return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp).unwrap();
   }
 
@@ -844,11 +871,12 @@ public:
 ///
 /// \tparam Tag A unique tag type to distinguish different boolean types.
 template <typename Tag, cxx_boolean T>
-class boolean_type : public strong_type<Tag, T>,
-                     public equality_comparison::skill<boolean_type<Tag, T>>,
-                     public less::skill<boolean_type<Tag, T>>,
-                     public output_stream::skill<boolean_type<Tag, T>>,
-                     public input_stream::skill<boolean_type<Tag, T>> {
+class CINA_EBO boolean_type
+    : public strong_type<Tag, T>,
+      public equality_comparison::skill<boolean_type<Tag, T>>,
+      public less::skill<boolean_type<Tag, T>>,
+      public output_stream::skill<boolean_type<Tag, T>>,
+      public input_stream::skill<boolean_type<Tag, T>> {
 
   using base_type = strong_type<Tag, T>;
 
@@ -874,19 +902,21 @@ public:
 private:
   friend constexpr auto operator&&(const boolean_type lhs,
                                    const boolean_type rhs) noexcept
-      -> boolean_type {
-    return boolean_type(lhs.unwrap() && rhs.unwrap());
+      -> boolean_type<Tag, std::remove_reference_t<T>> {
+    return boolean_type<Tag, std::remove_reference_t<T>>(lhs.unwrap() &&
+                                                         rhs.unwrap());
   }
 
   friend constexpr auto operator||(const boolean_type lhs,
                                    const boolean_type rhs) noexcept
-      -> boolean_type {
-    return boolean_type(lhs.unwrap() || rhs.unwrap());
+      -> boolean_type<Tag, std::remove_reference_t<T>> {
+    return boolean_type<Tag, std::remove_reference_t<T>>(lhs.unwrap() ||
+                                                         rhs.unwrap());
   }
 
   friend constexpr auto operator!(const boolean_type value) noexcept
-      -> boolean_type {
-    return boolean_type(!value.unwrap());
+      -> boolean_type<Tag, std::remove_reference_t<T>> {
+    return boolean_type<Tag, std::remove_reference_t<T>>(!value.unwrap());
   }
 };
 
@@ -906,7 +936,7 @@ private:
 /// \tparam Tag A unique tag type to distinguish different integral types.
 /// \tparam T The underlying integral type.
 template <typename Tag, cxx_arithmetic_integral T>
-class signed_integral_type
+class CINA_EBO signed_integral_type
     : public strong_type<Tag, T>,
       public three_way_comparison::skill<signed_integral_type<Tag, T>>,
       public output_stream::skill<signed_integral_type<Tag, T>>,
@@ -975,7 +1005,7 @@ public:
 };
 
 template <typename Tag, cxx_unsigned_integral T>
-struct unsigned_integral_type
+struct CINA_EBO unsigned_integral_type
     : public strong_type<Tag, T>,
       public three_way_comparison::skill<signed_integral_type<Tag, T>>,
       public output_stream::skill<signed_integral_type<Tag, T>>,
@@ -1007,7 +1037,7 @@ public:
 };
 
 template <typename Tag, std::floating_point T>
-class floating_point_type
+class CINA_EBO floating_point_type
     : public strong_type<Tag, T>,
       public three_way_comparison::skill<floating_point_type<Tag, T>>,
       public output_stream::skill<floating_point_type<Tag, T>>,
@@ -1066,7 +1096,7 @@ public:
 // --- Bounded Integral Type ---
 template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
           std::intmax_t Max>
-class bounded_integral_type : public strong_type<Tag, T> {
+class CINA_EBO bounded_integral_type : public strong_type<Tag, T> {
   using base_type = strong_type<Tag, T>;
   static_assert(Min <= Max);
   static_assert(Max <= std::numeric_limits<T>::max() &&
@@ -1172,15 +1202,16 @@ public:
 };
 
 template <typename Tag, std::floating_point T>
-class complex_type : public strong_type<Tag, std::complex<T>>,
-                     public equality_comparison::skill<complex_type<Tag, T>>,
-                     public output_stream::skill<complex_type<Tag, T>>,
-                     public input_stream::skill<complex_type<Tag, T>>,
-                     public addition::skill<complex_type<Tag, T>>,
-                     public subtraction::skill<complex_type<Tag, T>>,
-                     public multiplication::skill<complex_type<Tag, T>>,
-                     public division::skill<complex_type<Tag, T>>,
-                     public negation::skill<complex_type<Tag, T>> {
+class CINA_EBO complex_type
+    : public strong_type<Tag, std::complex<T>>,
+      public equality_comparison::skill<complex_type<Tag, T>>,
+      public output_stream::skill<complex_type<Tag, T>>,
+      public input_stream::skill<complex_type<Tag, T>>,
+      public addition::skill<complex_type<Tag, T>>,
+      public subtraction::skill<complex_type<Tag, T>>,
+      public multiplication::skill<complex_type<Tag, T>>,
+      public division::skill<complex_type<Tag, T>>,
+      public negation::skill<complex_type<Tag, T>> {
   using base_type = strong_type<Tag, std::complex<T>>;
 
   struct real_tag : Tag {};
@@ -1214,7 +1245,7 @@ public:
 // --- Pointer Types ---
 
 template <typename Tag, cxx_nullable_pointer Pointer>
-class pointer_type
+class CINA_EBO pointer_type
     : public strong_type<Tag, Pointer>,
       public equality_comparison::skill<pointer_type<Tag, Pointer>>,
       public output_stream::skill<pointer_type<Tag, Pointer>>,
@@ -1268,7 +1299,7 @@ private:
 };
 
 template <typename Tag, typename T, typename Deleter>
-class unique_ptr_type
+class CINA_EBO unique_ptr_type
     : public strong_type<Tag, std::unique_ptr<T, Deleter>>,
       public equality_comparison::skill<unique_ptr_type<Tag, T, Deleter>>,
       public three_way_comparison::skill<unique_ptr_type<Tag, T, Deleter>>,
@@ -1373,7 +1404,7 @@ auto make_unique(Args&&... args)
 }
 
 template <typename Tag, typename T>
-struct shared_ptr_type
+struct CINA_EBO shared_ptr_type
     : public strong_type<Tag, std::shared_ptr<T>>,
       public equality_comparison::skill<shared_ptr_type<Tag, T>>,
       public three_way_comparison::skill<shared_ptr_type<Tag, T>>,
@@ -1609,7 +1640,7 @@ concept has_size = requires(C c) { c.size(); };
 } // namespace _detail
 
 template <typename Tag, cxx_container Container>
-class container_type
+class CINA_EBO container_type
     : public strong_type<Tag, Container>,
       public equality_comparison::skill<container_type<Tag, Container>>,
       public three_way_comparison::skill<container_type<Tag, Container>> {
@@ -1694,7 +1725,7 @@ concept supports_back = requires(C& c, const C& cc) {
 } // namespace _detail
 
 template <typename Tag, cxx_sequence_container Container>
-class sequence_container_type : public container_type<Tag, Container> {
+class CINA_EBO sequence_container_type : public container_type<Tag, Container> {
   using base_type = container_type<Tag, Container>;
 
 public:
@@ -1810,7 +1841,7 @@ protected:
 template <typename Tag, typename Container>
   requires cxx_allocator_aware_container<Container> &&
            cxx_sequence_container<Container>
-class allocator_aware_sequence_container_type
+class CINA_EBO allocator_aware_sequence_container_type
     : public sequence_container_type<Tag, Container> {
   using base_type = sequence_container_type<Tag, Container>;
 
@@ -1851,6 +1882,49 @@ public:
   }
 };
 
+// --- Callable Type ---
+
+template <typename Tag, typename T, typename... Args>
+class CINA_EBO callable_type
+    : public strong_type<Tag, T>,
+      public invoke::skill<callable_type<Tag, T, Args...>> {
+  using base_type = strong_type<Tag, T>;
+
+public:
+  template <typename NewTag> using rebind = callable_type<NewTag, T, Args...>;
+
+  template <typename U = T>
+    requires std::constructible_from<T, U> && (!strong_type_like<U>)
+  constexpr explicit callable_type(U&& value) noexcept
+      : base_type(std::forward<U>(value)) {}
+
+  template <typename... Args2>
+
+  constexpr callable_type(std::in_place_t, Args2&&... args) noexcept
+      : base_type(std::in_place, std::forward<Args2>(args)...) {}
+
+  template <typename U, typename... Args2>
+  constexpr callable_type(std::in_place_type_t<U>, Args2&&... args) noexcept
+      : base_type(std::in_place_type<U>, std::forward<Args2>(args)...) {}
+};
+
+template <typename Tag, typename T, typename... Args>
+  requires std::is_function_v<T>
+class callable_type<Tag, T, Args...>
+    : public strong_type<Tag, std::add_pointer_t<T>>,
+      public invoke::skill<callable_type<Tag, T, Args...>> {
+  using base_type = strong_type<Tag, std::add_pointer_t<T>>;
+
+public:
+  template <typename NewTag> using rebind = callable_type<NewTag, T, Args...>;
+
+  template <typename U = std::add_pointer_t<T>>
+    requires std::constructible_from<std::add_pointer_t<T>, U> &&
+             (!strong_type_like<U>)
+  constexpr explicit callable_type(U&& value) noexcept
+      : base_type(std::forward<U>(value)) {}
+};
+
 // --- Type Factory ----
 
 /// \brief Tag type to indicate no skills should be supported.
@@ -1863,6 +1937,8 @@ struct owning_pointer {};
 /// \tparam Min The minimum value (inclusive) allowed for the integral type.
 /// \tparam Max The maximum value (inclusive) allowed for the integral type.
 template <std::intmax_t Min, std::intmax_t Max> struct range {};
+
+template <typename... Args> struct callable {};
 
 /// \cond
 namespace _detail {
@@ -1971,6 +2047,17 @@ public:
 template <typename Tag, cxx_allocator_aware_container Container>
 struct new_type_impl<Tag, Container> {
   using type = selected_container_type<Tag, Container>;
+};
+
+template <typename Tag, typename T, typename... Args>
+  requires std::invocable<T, Args...>
+struct new_type_impl<Tag, T, callable<Args...>> {
+  using type = callable_type<Tag, T, Args...>;
+};
+
+template <typename Tag, typename R, typename... Args>
+struct new_type_impl<Tag, std::function<R(Args...)>> {
+  using type = callable_type<Tag, std::function<R(Args...)>, Args...>;
 };
 
 template <typename Tag, strong_type_like T> struct new_type_impl<Tag, T> {

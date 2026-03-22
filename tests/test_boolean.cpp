@@ -61,7 +61,7 @@ TEST(TestBoolean, TestConstructor) {
   cina::boolean_type<struct BooleanType4, const bool&> ref2{b};
   EXPECT_TRUE(ref2.unwrap());
 
-  EXPECT_FALSE((std::constructible_from<boolean_type::reference, const bool&>));
+  EXPECT_FALSE((std::constructible_from<boolean_reference, const bool&>));
 
   using boolean_reference2 = cina::boolean_type<struct BooleanType5, bool&>;
   EXPECT_FALSE(
@@ -176,6 +176,26 @@ TEST(TestBoolean, TestLess) {
   const boolean_type b2{false};
 
   EXPECT_EQ(b1 < b2, true < false);
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const Type t1{true};
+  const Type t2{false};
+  EXPECT_EQ(t1 < t2, true < false);
+
+  using boolean_reference = cina::boolean_type<struct BooleanType3, bool&>;
+  bool b3{true};
+  boolean_reference ref{b3};
+  bool b4{false};
+  boolean_reference ref2{b4};
+  EXPECT_EQ(ref < ref2, true < false);
+
+  using const_boolean_reference =
+      cina::boolean_type<struct BooleanType4, const bool&>;
+  const_boolean_reference cref{b3};
+  const_boolean_reference cref2{b4};
+  EXPECT_EQ(cref < cref2, true < false);
 }
 
 TEST(TestBoolean, TestOutputStream) {
@@ -187,6 +207,28 @@ TEST(TestBoolean, TestOutputStream) {
   std::ostringstream oss;
   oss << std::boolalpha << b1 << " " << b2;
   EXPECT_STREQ(oss.str().c_str(), "true false");
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const Type t1{true};
+  oss.str("");
+  oss << std::boolalpha << t1;
+  EXPECT_STREQ(oss.str().c_str(), "true");
+
+  using boolean_reference = cina::boolean_type<struct BooleanType3, bool&>;
+  bool b3{true};
+  boolean_reference ref{b3};
+  oss.str("");
+  oss << std::boolalpha << ref;
+  EXPECT_STREQ(oss.str().c_str(), "true");
+
+  using const_boolean_reference =
+      cina::boolean_type<struct BooleanType4, const bool&>;
+  const_boolean_reference cref{b3};
+  oss.str("");
+  oss << std::boolalpha << cref;
+  EXPECT_STREQ(oss.str().c_str(), "true");
 }
 
 TEST(TestBoolean, TestContextualConversion) {
@@ -197,6 +239,25 @@ TEST(TestBoolean, TestContextualConversion) {
   const boolean_type b1{true};
   const DontCare dc = b1 ? cDONT_CARE_TRUE : cDONT_CARE_FALSE;
   EXPECT_EQ(dc, cDONT_CARE_TRUE);
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const Type t1{false};
+  const DontCare dc2 = t1 ? cDONT_CARE_TRUE : cDONT_CARE_FALSE;
+  EXPECT_EQ(dc2, cDONT_CARE_FALSE);
+
+  using boolean_reference = cina::boolean_type<struct BooleanType3, bool&>;
+  bool b3{true};
+  boolean_reference ref{b3};
+  const DontCare dc3 = ref ? cDONT_CARE_TRUE : cDONT_CARE_FALSE;
+  EXPECT_EQ(dc3, cDONT_CARE_TRUE);
+
+  using const_boolean_reference =
+      cina::boolean_type<struct BooleanType4, const bool&>;
+  const_boolean_reference cref{b3};
+  const DontCare dc4 = cref ? cDONT_CARE_TRUE : cDONT_CARE_FALSE;
+  EXPECT_EQ(dc4, cDONT_CARE_TRUE);
 }
 
 TEST(TestBoolean, TestLogicalAnd) {
@@ -209,6 +270,16 @@ TEST(TestBoolean, TestLogicalAnd) {
   EXPECT_EQ(b1 && b2, boolean_type{false});
   EXPECT_EQ(b1 && b3, boolean_type{true});
   EXPECT_EQ(b2 && b3, boolean_type{false});
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const Type t1{true};
+  const Type t2{false};
+  const Type t3{true};
+  EXPECT_EQ(t1 && t2, Type{false});
+  EXPECT_EQ(t1 && t3, Type{true});
+  EXPECT_EQ(t2 && t3, Type{false});
 }
 
 TEST(TestBoolean, TestLogicalOr) {
@@ -221,6 +292,36 @@ TEST(TestBoolean, TestLogicalOr) {
   EXPECT_EQ(b1 || b2, boolean_type{true});
   EXPECT_EQ(b1 || b3, boolean_type{true});
   EXPECT_EQ(b2 || b3, boolean_type{true});
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const Type t1{true};
+  const Type t2{false};
+  const Type t3{true};
+  EXPECT_EQ(t1 || t2, Type{true});
+  EXPECT_EQ(t1 || t3, Type{true});
+  EXPECT_EQ(t2 || t3, Type{true});
+
+  using boolean_reference = cina::boolean_type<struct BooleanType3, bool&>;
+  bool b4{true};
+  boolean_reference ref{b4};
+  bool b5{false};
+  boolean_reference ref2{b5};
+
+  using result_type = cina::boolean_type<struct BooleanType3, bool>;
+  EXPECT_EQ(ref || ref2, result_type{true});
+  EXPECT_EQ(ref || ref, result_type{true});
+  EXPECT_EQ(ref2 || ref2, result_type{false});
+
+  using const_boolean_reference =
+      cina::boolean_type<struct BooleanType4, const bool&>;
+  const_boolean_reference cref{b4};
+  const_boolean_reference cref2{b5};
+  using result_type2 = cina::boolean_type<struct BooleanType4, const bool>;
+  EXPECT_EQ(cref || cref2, result_type2{true});
+  EXPECT_EQ(cref || cref, result_type2{true});
+  EXPECT_EQ(cref2 || cref2, result_type2{false});
 }
 
 TEST(TestBoolean, TestLogicalNot) {
@@ -231,6 +332,14 @@ TEST(TestBoolean, TestLogicalNot) {
 
   EXPECT_EQ(!b1, boolean_type{false});
   EXPECT_EQ(!b2, boolean_type{true});
+
+  struct Type : cina::boolean_type<Type, bool> {
+    using cina::boolean_type<Type, bool>::boolean_type;
+  };
+  const Type t1{true};
+  const Type t2{false};
+  EXPECT_EQ(!t1, Type{false});
+  EXPECT_EQ(!t2, Type{true});
 }
 
 TEST(TestBoolean, TestTypeFactory) {
