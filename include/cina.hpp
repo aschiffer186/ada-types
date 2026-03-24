@@ -1,9 +1,10 @@
 #ifndef CINA_HPP
 #define CINA_HPP
 
-#include <cmath>            // abs, sqrt, etc.
-#include <complex>          // complex
-#include <concepts>         // same_as
+#include <cmath>    // abs, sqrt, etc.
+#include <complex>  // complex
+#include <concepts> // same_as
+#include <cstdint>
 #include <format>           // formatter
 #include <initializer_list> // initializer_list
 #include <iterator>
@@ -205,12 +206,12 @@ template <typename Tag, cxx_nullable_pointer Pointer> class pointer_type;
 template <typename Tag, typename T, typename Deleter = std::default_delete<T>>
 class unique_ptr_type;
 
-template <typename Tag, cxx_container Container> class container_type;
+template <typename Tag, typename Container>
+  requires cxx_container<std::remove_reference_t<Container>>
+class container_type;
 
-template <typename Tag, cxx_allocator_aware_container Container>
-class allocator_aware_container_type;
-
-template <typename Tag, cxx_sequence_container Container>
+template <typename Tag, typename Container>
+  requires cxx_sequence_container<std::remove_reference_t<Container>>
 class sequence_container_type;
 
 // --- Cina Concepts ---
@@ -636,6 +637,14 @@ struct invoke {
       return std::invoke(static_cast<const Derived&>(*this).unwrap(),
                          std::forward<Args>(args)...);
     }
+
+    template <typename... Args>
+    constexpr auto operator()(Args&&... args) noexcept(noexcept(std::invoke(
+        static_cast<Derived&>(*this).unwrap(), std::forward<Args>(args)...)))
+        -> decltype(auto) {
+      return std::invoke(static_cast<Derived&>(*this).unwrap(),
+                         std::forward<Args>(args)...);
+    }
   };
 };
 
@@ -971,6 +980,19 @@ public:
       : base_type(std::forward<U>(value)) {}
 };
 
+/// \brief Strongly-type integral type.
+///
+/// Class template \c integral_type is a strongly typed integral type.
+/// It provides all of the same functionality as built-in signed-integral
+/// types except it cannot be instantiated from \c bool, \c char16_t, \c
+/// char32_t, or
+/// \c wchar_t and does not provide bitwise operations. Due to common practice
+/// of \c std::int8_t being an alias for \c char, this class can be
+/// instantiated from \c char. Additionally, this class supports bitwise
+/// oprations.
+///
+/// \tparam Tag A unique tag type to distinguish different integral types.
+/// \tparam T The underlying integral type.
 template <typename Tag, cxx_arithmetic_integral T>
 class bitwise_signed_integral_type
     : public strong_type<Tag, T>,
@@ -1061,10 +1083,19 @@ public:
   constexpr explicit floating_point_type(U&& value) noexcept
       : base_type(std::forward<U>(value)) {}
 
-  constexpr auto
-  is_approximately_equal(const floating_point_type /*other*/) const noexcept
-      -> bool {
-    return false;
+  /// \brief Returns true if two floating-point values are approximately equal.
+  ///
+  /// Returns true if \c other is within the specified tolerance of \c *this.
+  ///
+  /// \param other The other floating-point type to compare with
+  /// \param tolerance The tolerance to use for the comparison; default value is
+  /// \c std::numeric_limits<T>::epsilon
+  /// \return \c \true if the floating point types are approximately equal.
+  constexpr auto is_approximately_equal(
+      const floating_point_type other,
+      const floating_point_type tolerance = floating_point_type{
+          std::numeric_limits<double>::epsilon()}) const noexcept -> bool {
+    return std::abs(this->unwrap() - other.unwrap()) <= tolerance.unwrap();
   }
 
   /// \brief Returns true if two floating-point types have the same in-memory
@@ -1199,6 +1230,26 @@ public:
     this->_m_do_not_use_only_public_to_make_usable_as_nttp = temp.unwrap();
     return *this;
   }
+};
+
+template <typename Tag, cxx_unsigned_integral T, std::uintmax_t Modulo>
+class modular_integral_type : public strong_type<Tag, T> {
+  using base_type = strong_type<Tag, T>;
+
+public:
+  template <typename U = T>
+    requires non_narrowing_integer_conversion<U, T> && (!strong_type_like<U>) &&
+             std::convertible_to<U, T> && (!std::is_reference_v<T>)
+  constexpr explicit modular_integral_type(const U value) noexcept
+      : base_type(value % Modulo) {}
+
+  template <typename U = T>
+    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
+                                              std::remove_reference_t<T>> &&
+             (strong_type_like<U>) && std::convertible_to<U, T> &&
+             std::is_reference_v<T>
+  constexpr explicit modular_integral_type(U&& value)
+      : base_type(std::forward<U>(value)) {}
 };
 
 template <typename Tag, std::floating_point T>
@@ -1639,20 +1690,23 @@ template <typename C>
 concept has_size = requires(C c) { c.size(); };
 } // namespace _detail
 
-template <typename Tag, cxx_container Container>
+template <typename Tag, typename Container>
+  requires cxx_container<std::remove_reference_t<Container>>
 class CINA_EBO container_type
     : public strong_type<Tag, Container>,
       public equality_comparison::skill<container_type<Tag, Container>>,
       public three_way_comparison::skill<container_type<Tag, Container>> {
 public:
-  using value_type = Container::value_type;
-  using reference = Container::reference;
-  using const_reference = Container::const_reference;
-  using size_type = Container::size_type;
-  using difference_type = Container::difference_type;
-  using iterator = _detail::iterator<typename Container::iterator, Tag>;
-  using const_iterator =
-      _detail::const_iterator<typename Container::const_iterator, Tag>;
+  using value_type = std::remove_reference_t<Container>::value_type;
+  using reference = std::remove_reference_t<Container>::reference;
+  using const_reference = std::remove_reference_t<Container>::const_reference;
+  using size_type = std::remove_reference_t<Container>::size_type;
+  using difference_type = std::remove_reference_t<Container>::difference_type;
+  using iterator =
+      _detail::iterator<typename std::remove_reference_t<Container>::iterator,
+                        Tag>;
+  using const_iterator = _detail::const_iterator<
+      typename std::remove_reference_t<Container>::const_iterator, Tag>;
 
   constexpr container_type()
     requires std::is_default_constructible_v<Container>
@@ -1662,6 +1716,7 @@ public:
       : strong_type<Tag, Container>(container) {}
 
   constexpr container_type(Container&& container)
+    requires(!std::is_reference_v<Container>)
       : strong_type<Tag, Container>(std::move(container)) {}
 
   template <typename... Args>
@@ -1691,8 +1746,16 @@ public:
     return const_iterator(this->unwrap().cend());
   }
 
-  constexpr auto swap(container_type& other) -> void {
-    this->unwrap().swap(other.unwrap());
+  constexpr auto
+  swap(container_type& other) noexcept(std::is_nothrow_swappable_v<Container>)
+      -> void {
+    if constexpr (!std::is_reference_v<Container>) {
+      this->unwrap().swap(other.unwrap());
+    } else {
+      using std::swap;
+      swap(this->_m_do_not_use_only_public_to_make_usable_as_nttp,
+           other._m_do_not_use_only_public_to_make_usable_as_nttp);
+    }
   }
 
   constexpr auto size() const -> size_type
@@ -1708,6 +1771,13 @@ public:
   [[nodiscard]] constexpr auto empty() const -> bool {
     return this->unwrap().empty();
   }
+
+private:
+  friend constexpr auto
+  swap(container_type& lhs,
+       container_type& rhs) noexcept(noexcept(lhs.swap(rhs))) -> void {
+    lhs.swap(rhs);
+  }
 };
 
 namespace _detail {
@@ -1722,19 +1792,58 @@ concept supports_back = requires(C& c, const C& cc) {
   { c.back() } -> std::same_as<typename C::reference>;
   { cc.back() } -> std::same_as<typename C::const_reference>;
 };
+
+template <typename C>
+concept supports_push_back =
+    requires(C& c, const typename C::value_type& lvalue,
+             typename C::value_type&& rvalue) {
+      c.push_back(lvalue);
+      c.push_back(std::move(rvalue));
+    };
+
+template <typename C>
+concept supports_push_front =
+    requires(C& c, const typename C::value_type& lvalue,
+             typename C::value_type&& rvalue) {
+      c.push_front(lvalue);
+      c.push_front(std::move(rvalue));
+    };
+
+template <typename C, typename... Args>
+concept supports_emplace_back = requires(C& c, Args&&... args) {
+  {
+    c.emplace_back(std::forward<Args>(args)...)
+  } -> std::same_as<typename C::reference>;
+};
+
+template <typename C, typename... Args>
+concept supports_emplace_front = requires(C& c, Args&&... args) {
+  {
+    c.emplace_front(std::forward<Args>(args)...)
+  } -> std::same_as<typename C::reference>;
+};
+
+template <typename C>
+concept supports_pop_back = requires(C& c) { c.pop_back(); };
+
+template <typename C>
+concept supports_pop_front = requires(C& c) { c.pop_front(); };
 } // namespace _detail
 
-template <typename Tag, cxx_sequence_container Container>
+template <typename Tag, typename Container>
+  requires cxx_sequence_container<std::remove_reference_t<Container>>
 class CINA_EBO sequence_container_type : public container_type<Tag, Container> {
   using base_type = container_type<Tag, Container>;
 
 public:
-  using value_type = typename Container::value_type;
-  using reference = typename Container::reference;
-  using const_reference = typename Container::const_reference;
-  using size_type = typename Container::size_type;
-  using iterator = typename Container::const_iterator;
-  using const_iterator = typename Container::const_iterator;
+  using value_type = typename std::remove_reference_t<Container>::value_type;
+  using reference = typename std::remove_reference_t<Container>::reference;
+  using const_reference =
+      typename std::remove_reference_t<Container>::const_reference;
+  using size_type = typename std::remove_reference_t<Container>::size_type;
+  using iterator = typename std::remove_reference_t<Container>::const_iterator;
+  using const_iterator =
+      typename std::remove_reference_t<Container>::const_iterator;
 
   constexpr sequence_container_type() = default;
 
@@ -1742,6 +1851,7 @@ public:
       : base_type(container) {}
 
   constexpr explicit sequence_container_type(Container&& container)
+    requires(!std::is_reference_v<Container>)
       : base_type(std::move(container)) {}
 
   constexpr sequence_container_type(const size_type n, const value_type& value)
@@ -1832,6 +1942,58 @@ public:
     return this->unwrap().back();
   }
 
+  constexpr auto push_back(const value_type& element) -> void
+    requires _detail::supports_push_back<std::remove_reference_t<Container>>
+  {
+    this->unwrap().push_back(element);
+  }
+
+  constexpr auto push_back(value_type&& element) -> void
+    requires _detail::supports_push_back<std::remove_reference_t<Container>>
+  {
+    this->unwrap().push_back(std::move(element));
+  }
+
+  constexpr auto push_front(const value_type& element) -> void
+    requires _detail::supports_push_front<std::remove_reference_t<Container>>
+  {
+    this->unwrap().push_front(element);
+  }
+
+  constexpr auto push_front(value_type&& element) -> void
+    requires _detail::supports_push_front<std::remove_reference_t<Container>>
+  {
+    this->unwrap().push_front(element);
+  }
+
+  template <typename... Args>
+  constexpr auto emplace_front(Args&&... args) -> reference
+    requires _detail::supports_emplace_front<std::remove_reference_t<Container>,
+                                             decltype(args)...>
+  {
+    return this->unwrap().emplace_front(std::forward<Args>(args)...);
+  }
+
+  template <typename... Args>
+  constexpr auto emplace_back(Args&&... args) -> reference
+    requires _detail::supports_emplace_back<std::remove_reference_t<Container>,
+                                            decltype(args)...>
+  {
+    return this->unwrap().emplace_back(std::forward<Args>(args)...);
+  }
+
+  constexpr auto pop_back() -> void
+    requires _detail::supports_pop_back<std::remove_reference_t<Container>>
+  {
+    this->unwrap().pop_back();
+  }
+
+  constexpr auto pop_front() -> void
+    requires _detail::supports_pop_front<std::remove_reference_t<Container>>
+  {
+    this->unwrap().pop_front();
+  }
+
 protected:
   template <typename... Args>
   constexpr sequence_container_type(std::in_place_t, Args&&... args)
@@ -1839,8 +2001,8 @@ protected:
 };
 
 template <typename Tag, typename Container>
-  requires cxx_allocator_aware_container<Container> &&
-           cxx_sequence_container<Container>
+  requires cxx_allocator_aware_container<std::remove_reference_t<Container>> &&
+           cxx_sequence_container<std::remove_reference_t<Container>>
 class CINA_EBO allocator_aware_sequence_container_type
     : public sequence_container_type<Tag, Container> {
   using base_type = sequence_container_type<Tag, Container>;
@@ -1852,7 +2014,7 @@ public:
   using size_type = base_type::size_type;
   using iterator = base_type::iterator;
   using const_iterator = base_type::const_iterator;
-  using allocator_type = Container::allocator_type;
+  using allocator_type = std::remove_reference_t<Container>::allocator_type;
 
   using base_type::base_type;
 
@@ -1877,7 +2039,7 @@ public:
       std::initializer_list<value_type> il, const allocator_type& alloc)
       : base_type(std::in_place, il, alloc) {}
 
-  constexpr auto get_allocator() const -> typename Container::allocator_type {
+  constexpr auto get_allocator() const -> allocator_type {
     return this->unwrap().get_allocator();
   }
 };
@@ -1937,8 +2099,11 @@ struct owning_pointer {};
 /// \tparam Min The minimum value (inclusive) allowed for the integral type.
 /// \tparam Max The maximum value (inclusive) allowed for the integral type.
 template <std::intmax_t Min, std::intmax_t Max> struct range {};
-
-template <typename... Args> struct callable {};
+/// \brief Tag type to indicate the modulus of a modular integral type.
+/// \tparam Modulo The modulus for the modular integral type.
+template <std::uintmax_t Modulo>
+  requires(Modulo > 0)
+struct mod {};
 
 /// \cond
 namespace _detail {
@@ -2012,17 +2177,17 @@ struct new_type_impl<Tag, Ptr, owning_pointer> {
 template <typename, typename> class selected_container_type;
 
 template <typename Tag, typename Container>
-  requires cxx_container<Container>
+  requires cxx_container<std::remove_reference_t<Container>>
 class selected_container_type<Tag, Container>
     : public container_type<Tag, Container> {
 public:
   template <typename NewTag>
   using rebind = selected_container_type<NewTag, Container>;
-  using container_type<Container, Tag>::container_type;
+  using container_type<Tag, Container>::container_type;
 };
 
 template <typename Tag, typename Container>
-  requires cxx_sequence_container<Container>
+  requires cxx_sequence_container<std::remove_reference_t<Container>>
 class selected_container_type<Tag, Container>
     : public sequence_container_type<Tag, Container> {
 public:
@@ -2032,8 +2197,8 @@ public:
 };
 
 template <typename Tag, typename Container>
-  requires cxx_allocator_aware_container<Container> &&
-           cxx_sequence_container<Container>
+  requires cxx_allocator_aware_container<std::remove_reference_t<Container>> &&
+           cxx_sequence_container<std::remove_reference_t<Container>>
 class selected_container_type<Tag, Container>
     : public allocator_aware_sequence_container_type<Tag, Container> {
 public:
@@ -2044,15 +2209,64 @@ public:
       Tag, Container>::allocator_aware_sequence_container_type;
 };
 
-template <typename Tag, cxx_allocator_aware_container Container>
+template <typename Tag, typename Container>
+  requires cxx_container<std::remove_reference_t<Container>>
 struct new_type_impl<Tag, Container> {
   using type = selected_container_type<Tag, Container>;
 };
 
+template <typename> constexpr bool is_std_function = false;
+
+template <typename R, typename... Args>
+constexpr bool is_std_function<std::function<R(Args...)>> = true;
+
+template <typename T> struct function_traits;
+
+template <typename R, typename... Args> struct function_traits<R(Args...)> {
+  using arg_types = std::tuple<Args...>;
+};
+
+template <typename R, typename C, typename... Args>
+struct function_traits<R (C::*)(Args...)> {
+  using arg_types = std::tuple<Args...>;
+};
+
+template <typename R, typename C, typename... Args>
+struct function_traits<R (C::*)(Args...) noexcept> {
+  using arg_types = std::tuple<Args...>;
+};
+
+template <typename R, typename C, typename... Args>
+struct function_traits<R (C::*)(Args...) const> {
+  using arg_types = std::tuple<Args...>;
+};
+
+template <typename R, typename C, typename... Args>
+struct function_traits<R (C::*)(Args...) const noexcept> {
+  using arg_types = std::tuple<Args...>;
+};
+
+template <typename T>
+  requires requires { &T::operator(); } && (!is_std_function<T>)
+struct function_traits<T> : function_traits<decltype(&T::operator())> {};
+
+template <typename T>
+concept is_function_like = requires {
+  typename function_traits<T>::arg_types;
+} && (!is_std_function<T>);
+
+template <typename, typename, typename> struct callable_type_impl;
+
 template <typename Tag, typename T, typename... Args>
-  requires std::invocable<T, Args...>
-struct new_type_impl<Tag, T, callable<Args...>> {
+struct callable_type_impl<Tag, T, std::tuple<Args...>> {
   using type = callable_type<Tag, T, Args...>;
+};
+
+template <typename Tag, typename T>
+  requires is_function_like<T>
+struct new_type_impl<Tag, T> {
+  using type =
+      callable_type_impl<Tag, T, typename function_traits<T>::arg_types>::type;
 };
 
 template <typename Tag, typename R, typename... Args>

@@ -8,7 +8,7 @@ struct Foo {
 public:
   explicit Foo(int i) : i(i) {}
 
-  int operator()(int j) const { return i + j; }
+  int operator()(int j) { return i + j; }
 
 private:
   int i{};
@@ -47,7 +47,7 @@ TEST(TestCallable, TestCXXProperties) {
 TEST(TestCallable, TestConstructor) {
   using callable_type = cina::callable_type<struct CallableTag, Foo, int>;
 
-  const callable_type c{Foo{42}};
+  callable_type c{Foo{42}};
   EXPECT_EQ(c.unwrap()(10), 52);
 
   using callable_type2 =
@@ -78,7 +78,7 @@ TEST(TestCallable, TestConstructor) {
 TEST(TestCallable, TestCallOperator) {
   using callable_type = cina::callable_type<struct CallableTag, Foo, int>;
 
-  const callable_type c{Foo{42}};
+  callable_type c{Foo{42}};
   EXPECT_EQ(c(10), 52);
   EXPECT_TRUE((std::invocable<callable_type, int>));
   EXPECT_FALSE((std::is_nothrow_invocable_v<callable_type, int>));
@@ -120,4 +120,23 @@ TEST(TestCallable, TestCallOperator) {
   using callable_type7 = cina::callable_type<struct CallableTag7, Bar, int>;
   const callable_type7 c7{std::in_place, 42};
   EXPECT_EQ(c7(10), 52);
+}
+
+TEST(TestCallable, TestTypeFactory) {
+  using callable_type1 =
+      cina::new_type<struct CallableTag1, std::function<int(int)>>;
+  EXPECT_TRUE(
+      (std::same_as<callable_type1,
+                    cina::callable_type<struct CallableTag1,
+                                        std::function<int(int)>, int>>));
+
+  using callable_type2 = cina::new_type<struct CallableTag2, Foo>;
+  EXPECT_TRUE(
+      (std::same_as<callable_type2,
+                    cina::callable_type<struct CallableTag2, Foo, int>>));
+
+  using callable_type3 = cina::new_type<struct CallableTag3, decltype(func)>;
+  EXPECT_TRUE(
+      (std::same_as<callable_type3, cina::callable_type<struct CallableTag3,
+                                                        decltype(func), int>>));
 }
