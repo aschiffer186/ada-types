@@ -1,4 +1,8 @@
-#include <cina.hpp>
+#ifndef BUILD_MODULE
+#include "cina.hpp"
+#else
+import cina;
+#endif
 
 #include <concepts>
 #include <gtest/gtest.h>
@@ -120,6 +124,12 @@ TEST(TestCallable, TestCallOperator) {
   using callable_type7 = cina::callable_type<struct CallableTag7, Bar, int>;
   const callable_type7 c7{std::in_place, 42};
   EXPECT_EQ(c7(10), 52);
+
+  const auto l = [](int i) { return 42 + i; };
+  using callable_type8 =
+      cina::callable_type<struct CallableTag8, decltype(l), int>;
+  callable_type8 c8{l};
+  EXPECT_EQ(c8(10), 52);
 }
 
 TEST(TestCallable, TestTypeFactory) {
@@ -139,4 +149,15 @@ TEST(TestCallable, TestTypeFactory) {
   EXPECT_TRUE(
       (std::same_as<callable_type3, cina::callable_type<struct CallableTag3,
                                                         decltype(func), int>>));
+
+  const auto l = [](int i) { return 42 + i; };
+  using callable_type4 = cina::new_type<struct CallableTag4, decltype(l)>;
+  EXPECT_TRUE(
+      (std::same_as<callable_type4, cina::callable_type<struct CallableTag4,
+                                                        decltype(l), int>>));
+
+  using callable_type5 = cina::new_type<struct CallableTag5, decltype(&func3)>;
+  EXPECT_TRUE(
+      (std::same_as<callable_type5, cina::callable_type<struct CallableTag5,
+                                                        decltype(&func3)>>));
 }

@@ -42,6 +42,12 @@
 #define CINA_EBO
 #endif
 
+#ifdef BUILD_MODULE
+#define MODULE_EXPORT export
+#else
+#define MODULE_EXPORT
+#endif
+
 namespace cina {
 
 // --- C++ Concepts ---
@@ -50,12 +56,12 @@ namespace cina {
 /// stream.
 ///
 /// \tparam T The type to check.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept cxx_streamable = requires(T a, std::ostream& os) {
   { os << a } -> std::same_as<std::ostream&>;
 };
 
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept cxx_input_streamable = requires(T a, std::istream& is) {
   { is >> a } -> std::same_as<std::istream&>;
 };
@@ -63,12 +69,12 @@ concept cxx_input_streamable = requires(T a, std::istream& is) {
 /// \tparam Concept modeling that \c std::hash is enabled for a type.
 ///
 /// \tparam T The type to check.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept cxx_hashable = requires(T a) {
   { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
 };
 
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept cxx_boolean = std::same_as<std::remove_cvref_t<T>, bool>;
 
 /// \brief Concept modeling that a type is an "arithmetic" signed integral type.
@@ -77,7 +83,7 @@ concept cxx_boolean = std::same_as<std::remove_cvref_t<T>, bool>;
 /// one of \c bool, \c char16_t, \c char32_t, or \c wchar_t.
 ///
 /// \tparam T The type to check.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept cxx_arithmetic_integral =
     std::signed_integral<std::remove_cvref_t<T>> &&
     !std::same_as<std::remove_cvref_t<T>, bool> &&
@@ -87,7 +93,7 @@ concept cxx_arithmetic_integral =
 /// \brief Concept modeling that a type is an unsigned integral type.
 ///
 /// \tparam T The type to check.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept cxx_unsigned_integral =
     std::unsigned_integral<T> && !std::same_as<std::remove_cvref_t<T>, bool>;
 
@@ -95,7 +101,7 @@ concept cxx_unsigned_integral =
 /// requirement in the C++ standard.
 ///
 /// \tparam T The type to check.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept cxx_nullable_pointer =
     std::equality_comparable<T> && std::is_default_constructible_v<T> &&
     std::is_copy_constructible_v<T> && std::is_copy_assignable_v<T> &&
@@ -113,7 +119,7 @@ concept cxx_nullable_pointer =
 /// the C++ standard.
 ///
 /// \tparam T The type to check.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept cxx_container = requires {
   typename T::value_type;
   typename T::reference;
@@ -128,7 +134,7 @@ concept cxx_container = requires {
 /// requirement in the C++ standard.
 ///
 /// \tparam C The type to check.
-template <typename C>
+MODULE_EXPORT template <typename C>
 concept cxx_allocator_aware_container =
     cxx_container<C> && requires(const C c) {
       typename C::allocator_type;
@@ -139,7 +145,7 @@ concept cxx_allocator_aware_container =
 /// requirement in the C++ standard.
 ///
 /// \tparam C The type to check.
-template <typename C>
+MODULE_EXPORT template <typename C>
 concept cxx_sequence_container =
     cxx_container<C> &&
     requires(std::initializer_list<typename C::value_type> il, C v, const C& cv,
@@ -151,7 +157,7 @@ concept cxx_sequence_container =
       { v.insert(p, rt) } -> std::same_as<typename C::iterator>;
     };
 
-template <typename C>
+MODULE_EXPORT template <typename C>
 concept cxx_reversible_container = cxx_container<C> && requires(C c) {
   typename C::reverse_iterator;
   typename C::const_reverse_iterator;
@@ -164,7 +170,7 @@ concept cxx_reversible_container = cxx_container<C> && requires(C c) {
 /// non-narrowing. This concept is only modeled if:
 /// 1. Both \c From and \c To are integral types of the same signedness, and
 ///    the size of \c From is less than or equal to the size of \c To.
-template <typename From, typename To>
+MODULE_EXPORT template <typename From, typename To>
 concept non_narrowing_integer_conversion =
     std::integral<From> && std::integral<To> && sizeof(From) <= sizeof(To) &&
     std::is_signed_v<From> == std::is_signed_v<To>;
@@ -176,7 +182,7 @@ concept non_narrowing_integer_conversion =
 /// 1. \c From is an integral type and \c To is a floating-point type.
 /// 2. \c From and \c To are both floating-point types and \c sizeof(From) <= \c
 /// sizeof(To).
-template <typename From, typename To>
+MODULE_EXPORT template <typename From, typename To>
 concept non_narrowing_floating_point_conversion =
     (std::integral<From> && std::floating_point<To>) ||
     (std::floating_point<From> && std::floating_point<To> &&
@@ -184,36 +190,59 @@ concept non_narrowing_floating_point_conversion =
 
 // --- Forward Declarations ---
 
-template <typename Tag, typename UnderlyingType> class strong_type;
+MODULE_EXPORT template <typename Tag, typename UnderlyingType>
+class strong_type;
 
-template <typename Tag, cxx_boolean T> class boolean_type;
+MODULE_EXPORT template <typename Tag, cxx_boolean T> class boolean_type;
 
-template <typename Tag, cxx_arithmetic_integral T> class signed_integral_type;
+MODULE_EXPORT template <typename Tag, cxx_arithmetic_integral T>
+class signed_integral_type;
 
-template <typename Tag, cxx_arithmetic_integral T>
+MODULE_EXPORT template <typename Tag, cxx_arithmetic_integral T>
 class bitwise_signed_integral_type;
 
-template <typename Tag, std::floating_point T> class floating_point_type;
+MODULE_EXPORT template <typename Tag, cxx_unsigned_integral T>
+class unsigned_integral_type;
 
-template <typename Tag, std::floating_point T> class complex_type;
+MODULE_EXPORT template <typename Tag, std::floating_point T>
+class floating_point_type;
 
-template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
-          std::intmax_t Max>
+MODULE_EXPORT template <typename Tag, std::floating_point T> class complex_type;
+
+MODULE_EXPORT template <typename Tag, cxx_arithmetic_integral T,
+                        std::intmax_t Min, std::intmax_t Max>
 class bounded_integral_type;
 
-template <typename Tag, cxx_nullable_pointer Pointer> class pointer_type;
+MODULE_EXPORT template <typename Tag, cxx_unsigned_integral,
+                        std::uintmax_t Modulo>
+class modular_integral_type;
 
-template <typename Tag, typename T, typename Deleter = std::default_delete<T>>
+MODULE_EXPORT template <typename Tag, std::floating_point T> class complex_type;
+
+MODULE_EXPORT template <typename Tag, cxx_nullable_pointer Pointer>
+class pointer_type;
+
+MODULE_EXPORT template <typename Tag, typename T,
+                        typename Deleter = std::default_delete<T>>
 class unique_ptr_type;
 
-template <typename Tag, typename Container>
+MODULE_EXPORT template <typename Tag, typename T> class shared_ptr_type;
+
+MODULE_EXPORT template <typename Tag, typename Container>
   requires cxx_container<std::remove_reference_t<Container>>
 class container_type;
 
-template <typename Tag, typename Container>
+MODULE_EXPORT template <typename Tag, typename Container>
   requires cxx_sequence_container<std::remove_reference_t<Container>>
 class sequence_container_type;
 
+MODULE_EXPORT template <typename Tag, typename Container>
+  requires cxx_allocator_aware_container<std::remove_reference_t<Container>> &&
+           cxx_sequence_container<std::remove_reference_t<Container>>
+class allocator_aware_sequence_container_type;
+
+MODULE_EXPORT template <typename Tag, typename T, typename... Args>
+class callable_type;
 // --- Cina Concepts ---
 
 /// \cond
@@ -240,14 +269,14 @@ auto _get_underlying_type(const strong_type<Tag, UnderlyingType>&)
 
 /// \brief Concept modeling that a type is a strong type provided by the cina
 /// library.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept strong_type_like = _detail::is_strong_type_impl<std::remove_cvref_t<T>>;
 
 /// \brief Computes the underlying type of a strong type provided by the cina
 /// library.
 ///
 /// \tparam T The strong type to compute the underlying type of.
-template <typename T>
+MODULE_EXPORT template <typename T>
 using underlying_type =
     decltype(_detail::_get_underlying_type(std::declval<T>()));
 
@@ -313,7 +342,7 @@ constexpr bool is_complex_type<
 /// cina::integral_type or \c cina::bitwise_integral_type.
 ///
 /// \tparam T The type to check.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept integral = _detail::is_integral_type<std::remove_cvref_t<T>> ||
                    _detail::is_bitwise_integral_type<std::remove_cvref_t<T>>;
 
@@ -321,38 +350,38 @@ concept integral = _detail::is_integral_type<std::remove_cvref_t<T>> ||
 /// cina::bounded_integral_type.
 ///
 /// \tparam T The type to check.
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept bounded_integral = _detail::is_bounded_integral<std::remove_cvref_t<T>>;
 
-template <typename T, std::intmax_t Min, std::intmax_t Max>
+MODULE_EXPORT template <typename T, std::intmax_t Min, std::intmax_t Max>
 concept integer_in_range =
     bounded_integral<T> && T::min.unwrap() >= Min && T::max.unwrap() <= Max;
 
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept floating_point =
     _detail::is_floating_point_type<std::remove_cvref_t<T>>;
 
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept arithmetic = integral<T> || floating_point<T> || bounded_integral<T>;
 
-template <typename T>
+MODULE_EXPORT template <typename T>
 concept complex = _detail::is_complex_type<std::remove_cvref_t<T>>;
 
 // --- Custom Exceptions ---
 
-class cina_exception : public std::runtime_error {
+MODULE_EXPORT class cina_exception : public std::runtime_error {
 public:
   explicit cina_exception(const std::string& what_arg)
       : std::runtime_error(what_arg) {}
 };
 
-class out_of_range : public cina_exception {
+MODULE_EXPORT class out_of_range : public cina_exception {
 public:
   explicit out_of_range(const std::string& what_arg)
       : cina_exception(what_arg) {}
 };
 
-class overflow_error : public cina_exception {
+MODULE_EXPORT class overflow_error : public cina_exception {
 public:
   explicit overflow_error(const std::string& what_arg)
       : cina_exception(what_arg) {}
@@ -360,7 +389,7 @@ public:
 
 // --- Skills ---
 
-struct equality_comparison {
+MODULE_EXPORT struct equality_comparison {
   template <typename Derived> struct skill {
     friend constexpr auto operator==(const Derived& lhs, const Derived& rhs)
         -> bool
@@ -371,7 +400,7 @@ struct equality_comparison {
   };
 };
 
-struct three_way_comparison {
+MODULE_EXPORT struct three_way_comparison {
   template <typename Derived> struct skill {
     friend constexpr auto operator<=>(const Derived& lhs, const Derived& rhs)
       requires std::three_way_comparable<underlying_type<Derived>>
@@ -381,7 +410,7 @@ struct three_way_comparison {
   };
 };
 
-struct less {
+MODULE_EXPORT struct less {
   template <typename Derived> struct skill {
     friend constexpr auto operator<(const Derived& lhs,
                                     const Derived& rhs) noexcept -> bool {
@@ -400,10 +429,15 @@ constexpr bool is_int8_type<signed_integral_type<Tag, std::int8_t>> = true;
 template <typename Tag>
 constexpr bool is_int8_type<bitwise_signed_integral_type<Tag, std::int8_t>> =
     true;
+
+template <typename> constexpr bool is_uint8_type = false;
+
+template <typename Tag>
+constexpr bool is_uint8_type<unsigned_integral_type<Tag, std::uint8_t>> = true;
 } // namespace _detail
 /// \endcond
 
-struct output_stream {
+MODULE_EXPORT struct output_stream {
   template <typename Derived> struct skill {
     friend constexpr auto operator<<(std::ostream& os, const Derived& value)
         -> std::ostream&
@@ -412,14 +446,16 @@ struct output_stream {
       if constexpr (_detail::is_int8_type<Derived>) {
         // Prevent printing as char
         return os << static_cast<int>(value.unwrap());
-      } else {
+      } else if constexpr (_detail::is_uint8_type<Derived>) {
+        // Prevent printing as char
+        return os << static_cast<unsigned int>(value.unwrap());
       }
       return os << value.unwrap();
     }
   };
 };
 
-struct input_stream {
+MODULE_EXPORT struct input_stream {
   template <typename Derived> struct skill {
     friend auto operator>>(std::istream& is, Derived& value) -> std::istream&
       requires cxx_input_streamable<underlying_type<Derived>>
@@ -429,7 +465,7 @@ struct input_stream {
   };
 };
 
-struct addition {
+MODULE_EXPORT struct addition {
   template <typename Derived> struct skill {
     friend constexpr auto operator+(const Derived& lhs,
                                     const Derived& rhs) noexcept -> Derived {
@@ -444,7 +480,7 @@ struct addition {
   };
 };
 
-struct subtraction {
+MODULE_EXPORT struct subtraction {
   template <typename Derived> struct skill {
     friend constexpr auto operator-(const Derived& lhs,
                                     const Derived& rhs) noexcept -> Derived {
@@ -459,7 +495,7 @@ struct subtraction {
   };
 };
 
-struct multiplication {
+MODULE_EXPORT struct multiplication {
   template <typename Derived> struct skill {
     friend constexpr auto operator*(const Derived& lhs,
                                     const Derived& rhs) noexcept -> Derived {
@@ -474,7 +510,7 @@ struct multiplication {
   };
 };
 
-struct division {
+MODULE_EXPORT struct division {
   template <typename Derived> struct skill {
     friend constexpr auto operator/(const Derived& lhs,
                                     const Derived& rhs) noexcept -> Derived {
@@ -489,7 +525,7 @@ struct division {
   };
 };
 
-struct modulo {
+MODULE_EXPORT struct modulo {
   template <typename Derived> struct skill {
     friend constexpr auto operator%(const Derived& lhs,
                                     const Derived& rhs) noexcept -> Derived {
@@ -504,7 +540,7 @@ struct modulo {
   };
 };
 
-struct negation {
+MODULE_EXPORT struct negation {
   template <typename Derived> struct skill {
     friend constexpr auto operator-(const Derived& value) noexcept -> Derived {
       return Derived(-value.unwrap());
@@ -512,7 +548,7 @@ struct negation {
   };
 };
 
-struct increment {
+MODULE_EXPORT struct increment {
   template <typename Derived> struct skill {
     friend constexpr auto operator++(Derived& value) noexcept -> Derived& {
       value = Derived(value.unwrap() + 1);
@@ -527,7 +563,7 @@ struct increment {
   };
 };
 
-struct decrement {
+MODULE_EXPORT struct decrement {
   template <typename Derived> struct skill {
     friend constexpr auto operator--(Derived& value) noexcept -> Derived& {
       value = Derived(value.unwrap() - 1);
@@ -541,7 +577,7 @@ struct decrement {
     }
   };
 };
-struct bitwise_and {
+MODULE_EXPORT struct bitwise_and {
   template <typename Derived> struct skill {
     friend constexpr auto operator&(const Derived& lhs,
                                     const Derived& rhs) noexcept -> Derived {
@@ -556,7 +592,7 @@ struct bitwise_and {
   };
 };
 
-struct bitwise_or {
+MODULE_EXPORT struct bitwise_or {
   template <typename Derived> struct skill {
     friend constexpr auto operator|(const Derived& lhs,
                                     const Derived& rhs) noexcept -> Derived {
@@ -571,7 +607,7 @@ struct bitwise_or {
   };
 };
 
-struct bitwise_xor {
+MODULE_EXPORT struct bitwise_xor {
   template <typename Derived> struct skill {
     friend constexpr auto operator^(const Derived& lhs,
                                     const Derived& rhs) noexcept -> Derived {
@@ -586,7 +622,7 @@ struct bitwise_xor {
   };
 };
 
-struct bitwise_not {
+MODULE_EXPORT struct bitwise_not {
   template <typename Derived> struct skill {
     friend constexpr auto operator~(const Derived& value) noexcept -> Derived {
       return Derived(~value.unwrap());
@@ -594,7 +630,7 @@ struct bitwise_not {
   };
 };
 
-struct bitwise_shift {
+MODULE_EXPORT struct bitwise_shift {
   template <typename Derived> struct skill {
     friend constexpr auto operator<<(const Derived& lhs,
                                      const Derived& rhs) noexcept -> Derived {
@@ -620,7 +656,7 @@ struct bitwise_shift {
   };
 };
 
-struct dereference {
+MODULE_EXPORT struct dereference {
   template <typename Derived> struct skill {
     friend constexpr decltype(auto) operator*(const Derived& derived) {
       return *derived.unwrap();
@@ -628,7 +664,7 @@ struct dereference {
   };
 };
 
-struct invoke {
+MODULE_EXPORT struct invoke {
   template <typename Derived> struct skill {
     template <typename... Args>
     constexpr auto operator()(Args&&... args) const noexcept(
@@ -1027,7 +1063,7 @@ public:
 };
 
 template <typename Tag, cxx_unsigned_integral T>
-struct CINA_EBO unsigned_integral_type
+class CINA_EBO unsigned_integral_type
     : public strong_type<Tag, T>,
       public three_way_comparison::skill<signed_integral_type<Tag, T>>,
       public output_stream::skill<signed_integral_type<Tag, T>>,
@@ -1135,21 +1171,58 @@ class CINA_EBO bounded_integral_type : public strong_type<Tag, T> {
   static_assert(Min >= std::numeric_limits<T>::min() &&
                 Min <= std::numeric_limits<T>::max());
 
-  template <typename U> constexpr static bool dependent_false = false;
-
 public:
   template <typename NewTag>
   using rebind = bounded_integral_type<NewTag, T, Min, Max>;
 
   /// The minimum value that the specified \c bounded_integral_type can hold.
-  constexpr static bounded_integral_type min{Min};
+  constexpr static bounded_integral_type<Tag, std::remove_reference_t<T>, Min,
+                                         Max>
+      min{Min};
   /// The maximum value that the specified \c bounded_integral_type can hold.
-  constexpr static bounded_integral_type max{Max};
+  constexpr static bounded_integral_type<Tag, std::remove_reference_t<T>, Min,
+                                         Max>
+      max{Max};
+
+  template <typename U>
+    requires non_narrowing_integer_conversion<U, T> && (!std::is_reference_v<T>)
+  constexpr explicit bounded_integral_type(const U value) : base_type(value) {
+    constexpr U min_input_value = std::numeric_limits<U>::min();
+    constexpr U max_input_value = std::numeric_limits<U>::max();
+
+    static_assert(min_input_value < Max || max_input_value > Min,
+                  "The range of the input type must not be completely "
+                  "outside the bounds of the bounded_integral_type");
+
+    if constexpr (min_input_value < Min) {
+      if (value < Min) [[unlikely]] {
+        if (std::is_constant_evaluated()) {
+          throw out_of_range("Value is below minimum bound");
+        } else {
+          std::string message =
+              std::format("Value {} is below minimum bound of {}", value, Min);
+          throw out_of_range(message);
+        }
+      }
+    }
+
+    if constexpr (max_input_value > Max) {
+      if (value > Max) [[unlikely]] {
+        if (std::is_constant_evaluated()) {
+          throw out_of_range("Value is above maximum bound");
+        } else {
+          std::string message =
+              std::format("Value {} is above maximum bound of {}", value, Max);
+          throw out_of_range(message);
+        }
+      }
+    }
+  }
 
   template <typename U>
     requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
                                               std::remove_reference_t<T>> &&
-             (!strong_type_like<U>) && std::convertible_to<U, T>
+             std::convertible_to<U, T> && std::is_reference_v<T>
   constexpr explicit bounded_integral_type(U&& value)
       : base_type(std::forward<U>(value)) {
     constexpr U min_input_value = std::numeric_limits<U>::min();
@@ -1233,10 +1306,24 @@ public:
 };
 
 template <typename Tag, cxx_unsigned_integral T, std::uintmax_t Modulo>
-class modular_integral_type : public strong_type<Tag, T> {
+class modular_integral_type
+    : public strong_type<Tag, T>,
+      public equality_comparison::skill<modular_integral_type<Tag, T, Modulo>>,
+      public three_way_comparison::skill<modular_integral_type<Tag, T, Modulo>>,
+      public output_stream::skill<modular_integral_type<Tag, T, Modulo>>,
+      public input_stream::skill<modular_integral_type<Tag, T, Modulo>>,
+      public addition::skill<modular_integral_type<Tag, T, Modulo>>,
+      public subtraction::skill<modular_integral_type<Tag, T, Modulo>>,
+      public multiplication::skill<modular_integral_type<Tag, T, Modulo>>,
+      public division::skill<modular_integral_type<Tag, T, Modulo>> {
   using base_type = strong_type<Tag, T>;
 
 public:
+  template <typename NewTag>
+  using rebind = modular_integral_type<NewTag, T, Modulo>;
+
+  static constexpr modular_integral_type modulo{Modulo};
+
   template <typename U = T>
     requires non_narrowing_integer_conversion<U, T> && (!strong_type_like<U>) &&
              std::convertible_to<U, T> && (!std::is_reference_v<T>)
@@ -1249,7 +1336,11 @@ public:
              (strong_type_like<U>) && std::convertible_to<U, T> &&
              std::is_reference_v<T>
   constexpr explicit modular_integral_type(U&& value)
-      : base_type(std::forward<U>(value)) {}
+      : base_type(std::forward<U>(value)) {
+    if (this->unwrap() > Modulo) {
+      throw out_of_range("Value is above modulo");
+    }
+  }
 };
 
 template <typename Tag, std::floating_point T>
@@ -1269,16 +1360,12 @@ class CINA_EBO complex_type
   struct imag_tag : Tag {};
 
 public:
+  /// Type alias representing the real part of the complex number.
   using real_part = floating_point_type<real_tag, T>;
+  /// Type alias representing the imaginary part of the complex number.
   using imaginary_part = floating_point_type<imag_tag, T>;
 
   template <typename NewTag> using rebind = complex_type<NewTag, T>;
-
-  template <typename U1, typename U2>
-    requires non_narrowing_floating_point_conversion<U1, T> &&
-             non_narrowing_floating_point_conversion<U2, T>
-  constexpr complex_type(const U1 real, const U2 imag = T())
-      : base_type(std::in_place, real, imag) {}
 
   constexpr complex_type(const real_part real,
                          const imaginary_part imag = imaginary_part{0.0})
@@ -1455,7 +1542,7 @@ auto make_unique(Args&&... args)
 }
 
 template <typename Tag, typename T>
-struct CINA_EBO shared_ptr_type
+class CINA_EBO shared_ptr_type
     : public strong_type<Tag, std::shared_ptr<T>>,
       public equality_comparison::skill<shared_ptr_type<Tag, T>>,
       public three_way_comparison::skill<shared_ptr_type<Tag, T>>,
@@ -2090,18 +2177,18 @@ public:
 // --- Type Factory ----
 
 /// \brief Tag type to indicate no skills should be supported.
-struct no_skills {};
+MODULE_EXPORT struct no_skills {};
 /// \brief Tag to indicate signed integer type should have bitwise operations
-struct enable_bitwise {};
+MODULE_EXPORT struct enable_bitwise {};
 /// \brief Tag to indicate an pointer type with unique ownership semantics.
-struct owning_pointer {};
+MODULE_EXPORT struct owning_pointer {};
 /// \brief Tag to indicate a range constraint for bounded integral types
 /// \tparam Min The minimum value (inclusive) allowed for the integral type.
 /// \tparam Max The maximum value (inclusive) allowed for the integral type.
-template <std::intmax_t Min, std::intmax_t Max> struct range {};
+MODULE_EXPORT template <std::intmax_t Min, std::intmax_t Max> struct range {};
 /// \brief Tag type to indicate the modulus of a modular integral type.
 /// \tparam Modulo The modulus for the modular integral type.
-template <std::uintmax_t Modulo>
+MODULE_EXPORT template <std::uintmax_t Modulo>
   requires(Modulo > 0)
 struct mod {};
 
@@ -2226,6 +2313,11 @@ template <typename R, typename... Args> struct function_traits<R(Args...)> {
   using arg_types = std::tuple<Args...>;
 };
 
+template <typename R, typename... Args>
+struct function_traits<R(Args...) noexcept> {
+  using arg_types = std::tuple<Args...>;
+};
+
 template <typename R, typename C, typename... Args>
 struct function_traits<R (C::*)(Args...)> {
   using arg_types = std::tuple<Args...>;
@@ -2280,7 +2372,7 @@ template <typename Tag, strong_type_like T> struct new_type_impl<Tag, T> {
 } // namespace _detail
 /// \cond
 
-template <typename Tag, typename... Args>
+MODULE_EXPORT template <typename Tag, typename... Args>
 using new_type = typename _detail::new_type_impl<Tag, Args...>::type;
 
 namespace _detail {
@@ -2302,126 +2394,244 @@ struct subtype_impl<bounded_integral_type<Tag, T, Min, Max>> {
 };
 } // namespace _detail
 
-template <strong_type_like T, typename... Args>
+MODULE_EXPORT template <strong_type_like T, typename... Args>
 using subtype = _detail::subtype_impl<T, Args...>::type;
 
 // --- Arithmetic Functions ----
 
-template <arithmetic T> CINA_BASIC_CMATH_CONSTEXPR auto abs(const T x) -> T {
+MODULE_EXPORT template <arithmetic T>
+CINA_BASIC_CMATH_CONSTEXPR auto abs(const T x) -> T {
   return T{std::abs(x.unwrap())};
 }
 
-template <complex T> auto abs(const T& z) -> typename T::real_part {
+MODULE_EXPORT template <complex T>
+auto abs(const T& z) -> typename T::real_part {
   return typename T::real_part{std::abs(z.unwrap())};
 }
 
-template <arithmetic T> constexpr auto real(const T x) -> T { return x; }
+MODULE_EXPORT template <arithmetic T> constexpr auto real(const T x) -> T {
+  return x;
+}
 
-template <complex T> auto real(const T& z) -> typename T::real_part {
+MODULE_EXPORT template <complex T>
+auto real(const T& z) -> typename T::real_part {
   return z.real();
 }
 
-template <arithmetic T> constexpr auto imag(const T /*x*/) -> T { return T{0}; }
+MODULE_EXPORT template <arithmetic T> constexpr auto imag(const T /*x*/) -> T {
+  return T{0};
+}
 
-template <complex T> auto imag(const T& z) -> typename T::imaginary_part {
+MODULE_EXPORT template <complex T>
+auto imag(const T& z) -> typename T::imaginary_part {
   return z.imag();
 }
 
-template <arithmetic T>
+MODULE_EXPORT template <arithmetic T>
 CINA_BASIC_CMATH_CONSTEXPR auto fmod(const T x, const T y) -> T {
   return T{std::fmod(x.unwrap(), y.unwrap())};
 }
 
-template <arithmetic T>
+MODULE_EXPORT template <arithmetic T>
 CINA_BASIC_CMATH_CONSTEXPR auto remainder(const T x, const T y) -> T {
   return T{std::remainder(x.unwrap(), y.unwrap())};
 }
 
-template <arithmetic T>
+MODULE_EXPORT template <arithmetic T>
 CINA_BASIC_CMATH_CONSTEXPR auto remquo(const T x, const T y, int* quo) -> T {
   return T{std::remquo(x.unwrap(), y.unwrap(), quo)};
 }
 
-template <arithmetic Res>
+MODULE_EXPORT template <arithmetic Res>
 CINA_BASIC_CMATH_CONSTEXPR auto fma(const arithmetic auto x,
                                     const arithmetic auto y,
                                     const arithmetic auto z) -> Res {
   return Res{std::fma(x.unwrap(), y.unwrap(), z.unwrap())};
 }
 
-template <arithmetic T>
+MODULE_EXPORT template <arithmetic T>
 CINA_BASIC_CMATH_CONSTEXPR auto fmax(const T x, const T y) -> T {
   return T{std::fmax(x.unwrap(), y.unwrap())};
 }
 
-template <arithmetic T>
+MODULE_EXPORT template <arithmetic T>
 CINA_BASIC_CMATH_CONSTEXPR auto fmin(const T x, const T y) -> T {
   return T{std::fmin(x.unwrap(), y.unwrap())};
 }
 
-template <typename T>
+MODULE_EXPORT template <typename T>
 CINA_BASIC_CMATH_CONSTEXPR auto fdim(const T x, const T y) -> T {
   return T{std::fdim(x.unwrap(), y.unwrap())};
 }
 
-template <floating_point T> auto nan(const char* arg) -> T {
+MODULE_EXPORT template <floating_point T> auto nan(const char* arg) -> T {
   return T{std::nan(arg)};
 }
 
-template <arithmetic T>
-constexpr auto lerp(const T a, const T b, const T t) noexcept -> T {
+MODULE_EXPORT template <arithmetic Res>
+constexpr auto lerp(const arithmetic auto a, const arithmetic auto b,
+                    const arithmetic auto t) noexcept -> Res {
   return std::lerp(a.unwrap(), b.unwrap(), t.unwrap());
 }
 
-template <arithmetic T> CINA_CMATH_CONSTEXPR auto exp(const T x) -> T {
+MODULE_EXPORT template <arithmetic T>
+CINA_CMATH_CONSTEXPR auto exp(const T x) -> T {
   return T{std::exp(x.unwrap())};
 }
 
-template <arithmetic T> CINA_CMATH_CONSTEXPR auto exp2(T x) -> T {
+MODULE_EXPORT template <arithmetic T> CINA_CMATH_CONSTEXPR auto exp2(T x) -> T {
   return T{std::exp2(x.unwrap())};
 }
 
-template <arithmetic T> CINA_CMATH_CONSTEXPR auto expm1(T x) -> T {
+MODULE_EXPORT template <arithmetic T>
+CINA_CMATH_CONSTEXPR auto expm1(T x) -> T {
   return T{std::expm1(x.unwrap())};
 }
 
-template <arithmetic T> CINA_CMATH_CONSTEXPR auto log(const T x) -> T {
+MODULE_EXPORT template <arithmetic T>
+CINA_CMATH_CONSTEXPR auto log(const T x) -> T {
   return T{std::log(x.unwrap())};
 }
 
-template <arithmetic T> CINA_CMATH_CONSTEXPR auto log10(const T x) -> T {
+MODULE_EXPORT template <arithmetic T>
+CINA_CMATH_CONSTEXPR auto log10(const T x) -> T {
   return T{std::log10(x.unwrap())};
 }
 
-template <arithmetic T> CINA_CMATH_CONSTEXPR auto log2(const T x) -> T {
+MODULE_EXPORT template <arithmetic T>
+CINA_CMATH_CONSTEXPR auto log2(const T x) -> T {
   return T{std::log2(x.unwrap())};
 }
 
-template <arithmetic Exp>
+MODULE_EXPORT template <arithmetic Exp>
 CINA_CMATH_CONSTEXPR auto pow(const arithmetic auto base,
                               const arithmetic auto power) -> Exp {
   return Exp{std::pow(base.unwrap(), power.unwrap())};
 }
 
-template <arithmetic T> CINA_CMATH_CONSTEXPR auto sqrt(const T x) -> T {
+MODULE_EXPORT template <arithmetic T>
+CINA_CMATH_CONSTEXPR auto sqrt(const T x) -> T {
   return T{std::sqrt(x.unwrap())};
 }
 
-template <arithmetic T> CINA_CMATH_CONSTEXPR auto cbrt(const T x) -> T {
+MODULE_EXPORT template <arithmetic T>
+CINA_CMATH_CONSTEXPR auto cbrt(const T x) -> T {
   return T{std::cbrt(x.unwrap())};
 }
 
-template <typename Res>
+MODULE_EXPORT template <typename Res>
 CINA_CMATH_CONSTEXPR auto hypot(const arithmetic auto x,
                                 const arithmetic auto y) -> Res {
   return Res{std::hypot(x.unwrap(), y.unwrap())};
 }
 
-template <typename Res>
+MODULE_EXPORT template <typename Res>
 CINA_CMATH_CONSTEXPR auto hypot(const arithmetic auto x,
                                 const arithmetic auto y,
                                 const arithmetic auto z) -> Res {
   return Res{std::hypot(x.unwrap(), y.unwrap(), z.unwrap())};
+}
+
+MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
+sin(const arithmetic auto x) {
+  return std::sin(x.unwrap());
+}
+
+MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
+cos(const arithmetic auto x) {
+  return std::cos(x.unwrap());
+}
+
+MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
+tan(const arithmetic auto x) {
+  return std::tan(x.unwrap());
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto asin(const std::floating_point auto x) -> Res {
+  return Res{std::asin(x)};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto asin(const arithmetic auto x) -> Res {
+  return Res{std::asin(x.unwrap())};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto acos(const std::floating_point auto x) -> Res {
+  return Res{std::acos(x)};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto acos(const arithmetic auto x) -> Res {
+  return Res{std::acos(x.unwrap())};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto atan(const std::floating_point auto x) -> Res {
+  return Res{std::atan(x)};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto atan(const arithmetic auto x) -> Res {
+  return Res{std::atan(x.unwrap())};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto atan2(const std::floating_point auto y,
+                                const std::floating_point auto x) -> Res {
+  return Res{std::atan2(y, x)};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto atan2(const arithmetic auto y,
+                                const arithmetic auto x) -> Res {
+  return Res{std::atan2(y.unwrap(), x.unwrap())};
+}
+
+MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
+sinh(const arithmetic auto x) {
+  return std::sinh(x.unwrap());
+}
+
+MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
+cosh(const arithmetic auto x) {
+  return std::cosh(x.unwrap());
+}
+
+MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
+tanh(const arithmetic auto x) {
+  return std::tanh(x.unwrap());
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto asinh(const std::floating_point auto x) -> Res {
+  return Res{std::asinh(x)};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto asinh(const arithmetic auto x) -> Res {
+  return Res{std::asinh(x.unwrap())};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto acosh(const std::floating_point auto x) -> Res {
+  return Res{std::acosh(x)};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto acosh(const arithmetic auto x) -> Res {
+  return Res{std::acosh(x.unwrap())};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto atanh(const std::floating_point auto x) -> Res {
+  return Res{std::atanh(x)};
+}
+
+MODULE_EXPORT template <typename Res>
+CINA_CMATH_CONSTEXPR auto atanh(const arithmetic auto x) -> Res {
+  return Res{std::atanh(x.unwrap())};
 }
 
 } // namespace cina

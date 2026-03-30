@@ -1,4 +1,8 @@
+#ifndef BUILD_MODULE
 #include "cina.hpp"
+#else
+import cina;
+#endif
 
 #include <concepts>
 #include <format>

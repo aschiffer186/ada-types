@@ -6,8 +6,9 @@
             "binaryDir": "build/${presetName}",
             "hidden": true,
             "cacheVariables": {
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "On",
-                "CMAKE_CXX_EXTENSIONS": "Off"
+                "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+                "CMAKE_CXX_STANDARD": "20",
+                "CMAKE_CXX_EXTENSIONS": false
             }
         },
         {
@@ -31,6 +32,18 @@
                 "CMAKE_CXX_FLAGS_DEBUG": "-O0 -g",
                 "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
             }
+        },
+        {
+            "name": "ninja-modules",
+            "displayName": "Ninja (Modules)",
+            "inherits": "common",
+            "generator": "Ninja Multi-Config",
+            "cacheVariables": {
+                "CMAKE_CXX_FLAGS": "-Wall -Wextra -Werror -pedantic",
+                "CMAKE_CXX_FLAGS_DEBUG": "-O0 -g",
+                "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
+                "BUILD_MODULE": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -51,6 +64,18 @@
             "configurePreset": "ninja-sanitizer",
             "displayName": "Ninja (Sanitizer)",
             "configuration": "Debug"
+        },
+        {
+            "name": "ninja-modules-debug",
+            "configurePreset": "ninja-modules",
+            "displayName": "Ninja (Modules, Debug)",
+            "configuration": "Debug"
+        },
+        {
+            "name": "ninja-modules-release",
+            "configurePreset": "ninja-modules",
+            "displayName": "Ninja (Modules, Release)",
+            "configuration": "Release"
         }
     ],
     "testPresets": [
