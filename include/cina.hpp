@@ -1,2747 +1,316 @@
 #ifndef CINA_HPP
 #define CINA_HPP
 
-#include <cmath>    // abs, sqrt, etc.
-#include <complex>  // complex
-#include <concepts> // same_as
-#include <cstdint>
-#include <format>           // formatter
-#include <initializer_list> // initializer_list
-#include <iterator>
-#include <limits>      // numeric_limits
-#include <memory>      // unique_ptr
-#include <ostream>     // ostream
-#include <stdexcept>   // runtime_error
-#include <string>      // string
-#include <string_view> // string_view
-#include <type_traits> // remove_cvref_t, other traits
-#include <utility>     // in_place, in_place_t
-#include <version>     // version macros
-
-#if defined(__cpp_lib_constexpr_memory) && __cpp_lib_constexpr_memory >= 202202L
-#define CINA_POINTER_CONSTEXPR constexpr
-#else
-#define CINA_POINTER_CONSTEXPR
-#endif
-
-#if defined(__cpp_lib_constexpr_cmath) && __cpp_lib_constexpr_cmath >= 202202L
-#define CINA_BASIC_CMATH_CONSTEXPR constexpr
-#else
-#define CINA_BASIC_CMATH_CONSTEXPR
-#endif
-
-#if defined(__cpp_lib_constexpr_cmath) && __cpp_lib_constexpr_cmath >= 202306L
-#define CINA_CMATH_CONSTEXPR constexpr
-#else
-#define CINA_CMATH_CONSTEXPR
-#endif
-
 #if defined(_MSC_VER) && _MSC_VER >= 1910
-#define CINA_EBO __declspec(empty_bases)
+#define CINA_EBCO __declspec(empty_bases)
 #else
-#define CINA_EBO
+#define CINA_EBCO
 #endif
 
-#ifdef BUILD_MODULE
-#define MODULE_EXPORT export
-#else
-#define MODULE_EXPORT
-#endif
+#include <algorithm>        // ranges::copy
+#include <concepts>         // constructible_from, default_initializable
+#include <cstddef>          // size_t
+#include <initializer_list> // initializer_list
+#include <type_traits> // is_nothrow_constructible, is_nothrow_copy_constructible, is_nothrow_move_constructible, remove_reference_t,void_t
+#include <utility>     // declval, forward
 
 namespace cina {
 
-// --- C++ Concepts ---
+// --- Static String ---
 
-/// \brief Concept modeling that a type supports being written to an output
-/// stream.
+/// \brief Compile-time string wrapper.
 ///
-/// \tparam T The type to check.
-MODULE_EXPORT template <typename T>
-concept cxx_streamable = requires(T a, std::ostream& os) {
-  { os << a } -> std::same_as<std::ostream&>;
+/// Class template \c static_string is a simple wrapper around a string literal.
+/// It permits using string literals as template parameters.
+/// \tparam N The size of the string literal, including the null terminate.
+template <std::size_t N> struct static_string {
+  char data[N]{};
+
+  /// \brief Constructor
+  ///
+  /// Constructs a \c static_string from an array of character.
+  /// \param str The string literal to be wrapped.
+  constexpr static_string(const char (&str)[N]) {
+    std::ranges::copy(str, data);
+  }
 };
 
-MODULE_EXPORT template <typename T>
-concept cxx_input_streamable = requires(T a, std::istream& is) {
-  { is >> a } -> std::same_as<std::istream&>;
-};
+template <std::size_t N> static_string(const char (&)[N]) -> static_string<N>;
 
-/// \tparam Concept modeling that \c std::hash is enabled for a type.
+// --- Forward Declations ---
+
+/// \brief Strong type wrapper.
 ///
-/// \tparam T The type to check.
-MODULE_EXPORT template <typename T>
-concept cxx_hashable = requires(T a) {
-  { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
-};
-
-MODULE_EXPORT template <typename T>
-concept cxx_boolean = std::same_as<std::remove_cvref_t<T>, bool>;
-
-/// \brief Concept modeling that a type is an "arithmetic" signed integral type.
+/// Class template \c strong_type transforms an arbitrary type into a different
+/// type with a specified tag. This type is different from other types with
+/// different tags even if they have the same underlying type.
 ///
-/// This concept is modeled if \c T is a signed-integral type and \c T is not
-/// one of \c bool, \c char16_t, \c char32_t, or \c wchar_t.
-///
-/// \tparam T The type to check.
-MODULE_EXPORT template <typename T>
-concept cxx_arithmetic_integral =
-    std::signed_integral<std::remove_cvref_t<T>> &&
-    !std::same_as<std::remove_cvref_t<T>, bool> &&
-    !std::same_as<std::remove_cvref_t<T>, char16_t> &&
-    !std::same_as<std::remove_cvref_t<T>, char32_t> &&
-    !std::same_as<std::remove_cvref_t<T>, wchar_t>;
-/// \brief Concept modeling that a type is an unsigned integral type.
-///
-/// \tparam T The type to check.
-MODULE_EXPORT template <typename T>
-concept cxx_unsigned_integral =
-    std::unsigned_integral<T> && !std::same_as<std::remove_cvref_t<T>, bool>;
+/// \tparam Tag The tag of the strong type. Used to distinguish different strong
+/// types with the same underlying type.
+/// \tparam T The underlying type of the strong type.
+template <static_string Tag, class T> class strong_type;
 
-/// \brief Concept modeling that a type satisfies the NullbalePointer
-/// requirement in the C++ standard.
-///
-/// \tparam T The type to check.
-MODULE_EXPORT template <typename T>
-concept cxx_nullable_pointer =
-    std::equality_comparable<T> && std::is_default_constructible_v<T> &&
-    std::is_copy_constructible_v<T> && std::is_copy_assignable_v<T> &&
-    std::is_swappable_v<T> && std::is_destructible_v<T> &&
-    requires(T ptr1, T ptr2) {
-      { ptr1 = nullptr } -> std::same_as<T&>;
-      { ptr1 == ptr2 } -> std::convertible_to<bool>;
-      { ptr1 == nullptr } -> std::convertible_to<bool>;
-      { nullptr == ptr1 } -> std::convertible_to<bool>;
-      { ptr1 != nullptr } -> std::convertible_to<bool>;
-      { nullptr != ptr1 } -> std::convertible_to<bool>;
-    };
-
-/// \brief Concept modeling that a type satisifes the Container requirement in
-/// the C++ standard.
-///
-/// \tparam T The type to check.
-MODULE_EXPORT template <typename T>
-concept cxx_container = requires {
-  typename T::value_type;
-  typename T::reference;
-  typename T::const_reference;
-  typename T::size_type;
-  typename T::difference_type;
-  typename T::iterator;
-  typename T::const_iterator;
-};
-
-/// \brief Concept modeling that a type satisfies the AllocatorAwareContainer
-/// requirement in the C++ standard.
-///
-/// \tparam C The type to check.
-MODULE_EXPORT template <typename C>
-concept cxx_allocator_aware_container =
-    cxx_container<C> && requires(const C c) {
-      typename C::allocator_type;
-      { c.get_allocator() } -> std::same_as<typename C::allocator_type>;
-    };
-
-/// \brief Concept modeling that a type satisfies the SequenceContainer
-/// requirement in the C++ standard.
-///
-/// \tparam C The type to check.
-MODULE_EXPORT template <typename C>
-concept cxx_sequence_container =
-    cxx_container<C> &&
-    requires(std::initializer_list<typename C::value_type> il, C v, const C& cv,
-             typename C::const_iterator p, C::value_type t,
-             C::value_type&& rt) {
-      { C(il) } -> std::same_as<C>;
-      { v = il } -> std::same_as<C&>;
-      { v.insert(p, t) } -> std::same_as<typename C::iterator>;
-      { v.insert(p, rt) } -> std::same_as<typename C::iterator>;
-    };
-
-MODULE_EXPORT template <typename C>
-concept cxx_reversible_container = cxx_container<C> && requires(C c) {
-  typename C::reverse_iterator;
-  typename C::const_reverse_iterator;
-};
-
-/// \brief Concept indicating that a conversion between two integer types is
-/// non-narrowing.
-///
-/// Concept indicating that a conversion between two integer types is
-/// non-narrowing. This concept is only modeled if:
-/// 1. Both \c From and \c To are integral types of the same signedness, and
-///    the size of \c From is less than or equal to the size of \c To.
-MODULE_EXPORT template <typename From, typename To>
-concept non_narrowing_integer_conversion =
-    std::integral<From> && std::integral<To> && sizeof(From) <= sizeof(To) &&
-    std::is_signed_v<From> == std::is_signed_v<To>;
-
-/// \brief Concept indicating that a floating-point conversion is non-narrowing.
-///
-/// Concpet indicating that a floating-point conversion is non-narrowing. This
-/// concept is modeled if
-/// 1. \c From is an integral type and \c To is a floating-point type.
-/// 2. \c From and \c To are both floating-point types and \c sizeof(From) <= \c
-/// sizeof(To).
-MODULE_EXPORT template <typename From, typename To>
-concept non_narrowing_floating_point_conversion =
-    (std::integral<From> && std::floating_point<To>) ||
-    (std::floating_point<From> && std::floating_point<To> &&
-     sizeof(From) <= sizeof(To));
-
-// --- Forward Declarations ---
-
-MODULE_EXPORT template <typename Tag, typename UnderlyingType>
-class strong_type;
-
-MODULE_EXPORT template <typename Tag, cxx_boolean T> class boolean_type;
-
-MODULE_EXPORT template <typename Tag, cxx_arithmetic_integral T>
-class signed_integral_type;
-
-MODULE_EXPORT template <typename Tag, cxx_arithmetic_integral T>
-class bitwise_signed_integral_type;
-
-MODULE_EXPORT template <typename Tag, cxx_unsigned_integral T>
-class unsigned_integral_type;
-
-MODULE_EXPORT template <typename Tag, std::floating_point T>
-class floating_point_type;
-
-MODULE_EXPORT template <typename Tag, std::floating_point T> class complex_type;
-
-MODULE_EXPORT template <typename Tag, cxx_arithmetic_integral T,
-                        std::intmax_t Min, std::intmax_t Max>
-class bounded_integral_type;
-
-MODULE_EXPORT template <typename Tag, cxx_unsigned_integral,
-                        std::uintmax_t Modulo>
-class modular_integral_type;
-
-MODULE_EXPORT template <typename Tag, std::floating_point T> class complex_type;
-
-MODULE_EXPORT template <typename Tag, cxx_nullable_pointer Pointer>
-class pointer_type;
-
-MODULE_EXPORT template <typename Tag, typename T,
-                        typename Deleter = std::default_delete<T>>
-class unique_ptr_type;
-
-MODULE_EXPORT template <typename Tag, typename T> class shared_ptr_type;
-
-MODULE_EXPORT template <typename Tag, typename Container>
-  requires cxx_container<std::remove_reference_t<Container>>
-class container_type;
-
-MODULE_EXPORT template <typename Tag, typename Container>
-  requires cxx_sequence_container<std::remove_reference_t<Container>>
-class sequence_container_type;
-
-MODULE_EXPORT template <typename Tag, typename Container>
-  requires cxx_allocator_aware_container<std::remove_reference_t<Container>> &&
-           cxx_sequence_container<std::remove_reference_t<Container>>
-class allocator_aware_sequence_container_type;
-
-MODULE_EXPORT template <typename Tag, typename T, typename... Args>
-class callable_type;
-// --- Cina Concepts ---
-
-/// \cond
+/// --- Cina Concepts and Type Traits ----
 namespace _detail {
-template <typename Tag, typename UnderlyingType>
-auto _strong_type_base(const strong_type<Tag, UnderlyingType>&)
-    -> strong_type<Tag, UnderlyingType>;
+template <static_string Tag, class T>
+auto _as_strong_type(strong_type<Tag, T>) -> strong_type<Tag, T>;
 
-template <typename T>
-using _strong_type_base_t = decltype(_strong_type_base(std::declval<T>()));
+template <class T, class = void> constexpr inline bool _is_strong_type = false;
 
-template <typename, typename = void> constexpr bool is_strong_type_impl = false;
+template <class T>
+constexpr inline bool _is_strong_type<
+    T, std::void_t<decltype(_as_strong_type(std::declval<T>()))>> = true;
 
-template <typename T>
-constexpr bool is_strong_type_impl<T, std::void_t<_strong_type_base_t<T>>> =
-    true;
-
-template <typename Tag, typename UnderlyingType>
-auto _get_underlying_type(const strong_type<Tag, UnderlyingType>&)
-    -> UnderlyingType;
-
+template <static_string Tag, class T>
+auto _as_underlying_type(strong_type<Tag, T>) -> T;
 } // namespace _detail
-/// \endcond
 
-/// \brief Concept modeling that a type is a strong type provided by the cina
-/// library.
-MODULE_EXPORT template <typename T>
-concept strong_type_like = _detail::is_strong_type_impl<std::remove_cvref_t<T>>;
-
-/// \brief Computes the underlying type of a strong type provided by the cina
-/// library.
+/// Concept modeling that a type \c T is an instantiation of class template \c
+/// strong_type.
 ///
-/// \tparam T The strong type to compute the underlying type of.
-MODULE_EXPORT template <typename T>
+/// \tparam T The type to check.
+template <class T>
+concept strong_type_like = _detail::_is_strong_type<T>;
+
+/// Type alias for the underlying type of a strong type.
+///
+/// \tparam T The strong type to extract the underlying type from.
+template <class T>
 using underlying_type =
-    decltype(_detail::_get_underlying_type(std::declval<T>()));
+    decltype(_detail::_as_underlying_type(std::declval<T>()));
 
-/// \cond
+// --- Strong Type Definition ---
 namespace _detail {
-template <typename Tag, typename T>
-auto to_signed_integral_type(signed_integral_type<Tag, T>)
-    -> signed_integral_type<Tag, T>;
-
-template <typename, typename = void> constexpr bool is_integral_type = false;
-
-template <typename T>
-constexpr bool is_integral_type<
-    T, std::void_t<decltype(to_signed_integral_type(std::declval<T>()))>> =
-    true;
-
-template <typename Tag, typename T>
-auto to_bitwise_integral_type(bitwise_signed_integral_type<Tag, T>)
-    -> bitwise_signed_integral_type<Tag, T>;
-
-template <typename, typename = void>
-constexpr bool is_bitwise_integral_type = false;
-
-template <typename T>
-constexpr bool is_bitwise_integral_type<
-    T, std::void_t<decltype(to_bitwise_integral_type(std::declval<T>()))>> =
-    true;
-
-template <typename Tag, typename T>
-auto to_floating_point_type(floating_point_type<Tag, T>)
-    -> floating_point_type<Tag, T>;
-
-template <typename, typename = void>
-constexpr bool is_floating_point_type = false;
-
-template <typename T>
-constexpr bool is_floating_point_type<
-    T, std::void_t<decltype(to_floating_point_type(std::declval<T>()))>> = true;
-
-template <typename Tag, typename T, std::intmax_t Min, std::intmax_t Max>
-auto to_bounded_integral_type(bounded_integral_type<Tag, T, Min, Max>)
-    -> bounded_integral_type<Tag, T, Min, Max>;
-
-template <typename, typename = void> constexpr bool is_bounded_integral = false;
-
-template <typename T>
-constexpr bool is_bounded_integral<
-    T, std::void_t<decltype(to_bounded_integral_type(std::declval<T>()))>> =
-    true;
-
-template <typename Tag, typename T>
-auto to_complex_type(complex_type<Tag, T>) -> complex_type<Tag, T>;
-
-template <typename, typename = void> constexpr bool is_complex_type = false;
-
-template <typename T>
-constexpr bool is_complex_type<
-    T, std::void_t<decltype(to_complex_type(std::declval<T>()))>> = true;
-} // namespace _detail
-/// \endcond
-
-/// \brief Concept modeling that a type is an instantiation of \c
-/// cina::integral_type or \c cina::bitwise_integral_type.
-///
-/// \tparam T The type to check.
-MODULE_EXPORT template <typename T>
-concept integral = _detail::is_integral_type<std::remove_cvref_t<T>> ||
-                   _detail::is_bitwise_integral_type<std::remove_cvref_t<T>>;
-
-/// \brief Concept modeling that a type is an instantiation of \c
-/// cina::bounded_integral_type.
-///
-/// \tparam T The type to check.
-MODULE_EXPORT template <typename T>
-concept bounded_integral = _detail::is_bounded_integral<std::remove_cvref_t<T>>;
-
-MODULE_EXPORT template <typename T, std::intmax_t Min, std::intmax_t Max>
-concept integer_in_range =
-    bounded_integral<T> && T::min.unwrap() >= Min && T::max.unwrap() <= Max;
-
-MODULE_EXPORT template <typename T>
-concept floating_point =
-    _detail::is_floating_point_type<std::remove_cvref_t<T>>;
-
-MODULE_EXPORT template <typename T>
-concept arithmetic = integral<T> || floating_point<T> || bounded_integral<T>;
-
-MODULE_EXPORT template <typename T>
-concept complex = _detail::is_complex_type<std::remove_cvref_t<T>>;
-
-// --- Custom Exceptions ---
-
-MODULE_EXPORT class cina_exception : public std::runtime_error {
+template <class T> class _strong_type_storage {
 public:
-  explicit cina_exception(const std::string& what_arg)
-      : std::runtime_error(what_arg) {}
-};
+  T _m_do_not_use_directly{};
 
-MODULE_EXPORT class out_of_range : public cina_exception {
-public:
-  explicit out_of_range(const std::string& what_arg)
-      : cina_exception(what_arg) {}
-};
-
-MODULE_EXPORT class overflow_error : public cina_exception {
-public:
-  explicit overflow_error(const std::string& what_arg)
-      : cina_exception(what_arg) {}
-};
-
-// --- Skills ---
-
-MODULE_EXPORT struct equality_comparison {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator==(const Derived& lhs, const Derived& rhs)
-        -> bool
-      requires std::equality_comparable<underlying_type<Derived>>
-    {
-      return lhs.unwrap() == rhs.unwrap();
-    }
-  };
-};
-
-MODULE_EXPORT struct three_way_comparison {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator<=>(const Derived& lhs, const Derived& rhs)
-      requires std::three_way_comparable<underlying_type<Derived>>
-    {
-      return lhs.unwrap() <=> rhs.unwrap();
-    }
-  };
-};
-
-MODULE_EXPORT struct less {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator<(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> bool {
-      return lhs.unwrap() < rhs.unwrap();
-    }
-  };
-};
-
-/// \cond
-namespace _detail {
-template <typename> constexpr bool is_int8_type = false;
-
-template <typename Tag>
-constexpr bool is_int8_type<signed_integral_type<Tag, std::int8_t>> = true;
-
-template <typename Tag>
-constexpr bool is_int8_type<bitwise_signed_integral_type<Tag, std::int8_t>> =
-    true;
-
-template <typename> constexpr bool is_uint8_type = false;
-
-template <typename Tag>
-constexpr bool is_uint8_type<unsigned_integral_type<Tag, std::uint8_t>> = true;
-} // namespace _detail
-/// \endcond
-
-MODULE_EXPORT struct output_stream {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator<<(std::ostream& os, const Derived& value)
-        -> std::ostream&
-      requires cxx_streamable<underlying_type<Derived>>
-    {
-      if constexpr (_detail::is_int8_type<Derived>) {
-        // Prevent printing as char
-        return os << static_cast<int>(value.unwrap());
-      } else if constexpr (_detail::is_uint8_type<Derived>) {
-        // Prevent printing as char
-        return os << static_cast<unsigned int>(value.unwrap());
-      }
-      return os << value.unwrap();
-    }
-  };
-};
-
-MODULE_EXPORT struct input_stream {
-  template <typename Derived> struct skill {
-    friend auto operator>>(std::istream& is, Derived& value) -> std::istream&
-      requires cxx_input_streamable<underlying_type<Derived>>
-    {
-      return is >> value.unwrap();
-    }
-  };
-};
-
-MODULE_EXPORT struct addition {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator+(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() + rhs.unwrap());
-    }
-
-    friend constexpr auto operator+=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs + rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct subtraction {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator-(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() - rhs.unwrap());
-    }
-
-    friend constexpr auto operator-=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs - rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct multiplication {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator*(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() * rhs.unwrap());
-    }
-
-    friend constexpr auto operator*=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs * rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct division {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator/(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() / rhs.unwrap());
-    }
-
-    friend constexpr auto operator/=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs / rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct modulo {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator%(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() % rhs.unwrap());
-    }
-
-    friend constexpr auto operator%=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs % rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct negation {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator-(const Derived& value) noexcept -> Derived {
-      return Derived(-value.unwrap());
-    }
-  };
-};
-
-MODULE_EXPORT struct increment {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator++(Derived& value) noexcept -> Derived& {
-      value = Derived(value.unwrap() + 1);
-      return value;
-    }
-
-    friend constexpr auto operator++(Derived& value, int) noexcept -> Derived {
-      Derived old_value = value;
-      ++value;
-      return old_value;
-    }
-  };
-};
-
-MODULE_EXPORT struct decrement {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator--(Derived& value) noexcept -> Derived& {
-      value = Derived(value.unwrap() - 1);
-      return value;
-    }
-
-    friend constexpr auto operator--(Derived& value, int) noexcept -> Derived {
-      Derived old_value = value;
-      --value;
-      return old_value;
-    }
-  };
-};
-MODULE_EXPORT struct bitwise_and {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator&(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() & rhs.unwrap());
-    }
-
-    friend constexpr auto operator&=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs & rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct bitwise_or {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator|(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() | rhs.unwrap());
-    }
-
-    friend constexpr auto operator|=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs | rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct bitwise_xor {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator^(const Derived& lhs,
-                                    const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() ^ rhs.unwrap());
-    }
-
-    friend constexpr auto operator^=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs ^ rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct bitwise_not {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator~(const Derived& value) noexcept -> Derived {
-      return Derived(~value.unwrap());
-    }
-  };
-};
-
-MODULE_EXPORT struct bitwise_shift {
-  template <typename Derived> struct skill {
-    friend constexpr auto operator<<(const Derived& lhs,
-                                     const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() << rhs.unwrap());
-    }
-
-    friend constexpr auto operator<<=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs << rhs;
-      return lhs;
-    }
-
-    friend constexpr auto operator>>(const Derived& lhs,
-                                     const Derived& rhs) noexcept -> Derived {
-      return Derived(lhs.unwrap() >> rhs.unwrap());
-    }
-
-    friend constexpr auto operator>>=(Derived& lhs, const Derived& rhs) noexcept
-        -> Derived& {
-      lhs = lhs >> rhs;
-      return lhs;
-    }
-  };
-};
-
-MODULE_EXPORT struct dereference {
-  template <typename Derived> struct skill {
-    friend constexpr decltype(auto) operator*(const Derived& derived) {
-      return *derived.unwrap();
-    }
-  };
-};
-
-MODULE_EXPORT struct invoke {
-  template <typename Derived> struct skill {
-    template <typename... Args>
-    constexpr auto operator()(Args&&... args) const noexcept(
-        noexcept(std::invoke(static_cast<const Derived&>(*this).unwrap(),
-                             std::forward<Args>(args)...))) -> decltype(auto) {
-      return std::invoke(static_cast<const Derived&>(*this).unwrap(),
-                         std::forward<Args>(args)...);
-    }
-
-    template <typename... Args>
-    constexpr auto operator()(Args&&... args) noexcept(noexcept(std::invoke(
-        static_cast<Derived&>(*this).unwrap(), std::forward<Args>(args)...)))
-        -> decltype(auto) {
-      return std::invoke(static_cast<Derived&>(*this).unwrap(),
-                         std::forward<Args>(args)...);
-    }
-  };
-};
-
-namespace _detail {
-template <typename...> constexpr bool dependent_false = false;
-
-template <typename T> class strong_type_storage {
-public:
-  strong_type_storage()
-    requires std::is_default_constructible_v<T>
+  constexpr _strong_type_storage()
+    requires std::default_initializable<T>
   = default;
 
-  template <typename U>
-  constexpr explicit strong_type_storage(U&& value)
-      : _m_do_not_use_only_public_to_make_usable_as_nttp(
-            std::forward<U>(value)) {}
+  template <class U = T>
+  constexpr _strong_type_storage(U&& value) noexcept(
+      std::is_nothrow_constructible_v<T, U&&>)
+      : _m_do_not_use_directly(std::forward<U>(value)) {}
 
-  template <typename... Args>
-  constexpr strong_type_storage(std::in_place_t, Args&&... args)
-      : _m_do_not_use_only_public_to_make_usable_as_nttp(
-            std::forward<Args>(args)...) {}
+  template <class... Args>
+  constexpr _strong_type_storage(std::in_place_t, Args&&... args) noexcept(
+      std::is_nothrow_constructible_v<T, Args&&...>)
+      : _m_do_not_use_directly(std::forward<Args>(args)...) {}
 
-  template <typename U, typename... Args>
-  constexpr strong_type_storage(std::in_place_t, std::initializer_list<U> il,
-                                Args&&... args)
-      : _m_do_not_use_only_public_to_make_usable_as_nttp(
-            il, std::forward<Args>(args)...) {}
-
-  constexpr auto unwrap() & -> T& {
-    return _m_do_not_use_only_public_to_make_usable_as_nttp;
-  }
-
-  constexpr auto unwrap() const& -> const T& {
-    return _m_do_not_use_only_public_to_make_usable_as_nttp;
-  }
-
-  constexpr auto unwrap() && -> T&& {
-    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp);
-  }
-
-  constexpr auto unwrap() const&& -> const T&& {
-    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp);
-  }
-
-  T _m_do_not_use_only_public_to_make_usable_as_nttp;
-};
-
-template <typename T> class strong_type_storage<T&> {
-public:
-  constexpr explicit strong_type_storage(T& value)
-      : _m_do_not_use_only_public_to_make_usable_as_nttp(&value) {}
-
-  constexpr auto unwrap() & -> T& {
-    return *_m_do_not_use_only_public_to_make_usable_as_nttp;
-  }
-
-  constexpr auto unwrap() const& -> const T& {
-    return *_m_do_not_use_only_public_to_make_usable_as_nttp;
-  }
-
-  T* _m_do_not_use_only_public_to_make_usable_as_nttp;
-};
-
-template <typename T> class strong_type_storage<const T&> {
-public:
-  constexpr explicit strong_type_storage(const T& value)
-      : _m_do_not_use_only_public_to_make_usable_as_nttp(&value) {}
-
-  constexpr auto unwrap() const& -> const T& {
-    return *_m_do_not_use_only_public_to_make_usable_as_nttp;
-  }
-
-  const T* _m_do_not_use_only_public_to_make_usable_as_nttp;
-};
-} // namespace _detail
-
-template <typename Tag, typename UnderlyingType>
-class CINA_EBO strong_type
-    : public equality_comparison::skill<strong_type<Tag, UnderlyingType>> {
-public:
-  /// Type alias for the underlying type.
-  using underlying_type = UnderlyingType;
-  /// Type alias for the tag type.
-  using tag = Tag;
-  /// Type alias for a strong type with the same underlying type but a different
-  /// tag.
-  template <typename NewTag> using rebind = strong_type<NewTag, UnderlyingType>;
-
-  /// \brief Default constructor.
-  ///
-  /// Default initializes the underlying value of the \c strong_type.
-  /// This constructor is a \c constexpr constructor if the default
-  /// constructor of \c UnderlyingType is a \c constexpr constructor.
-  ///
-  /// \pre The underlying type is default constructible.
-  /// \post \c unwrap() returns a value equivalent to \c UnderlyingType{}.
-  /// \throws Any exceptions thrown by the default constructor of \c
-  /// UnderlyingType.
-  constexpr strong_type()
-    requires std::is_default_constructible_v<UnderlyingType>
-  = default;
-
-  /// \brief Constructor
-  ///
-  /// Initializes the underlying value of the \c strong_type with the given
-  /// value as if by \c std::forward<U>(value).
-  /// This constructor is a \c constexpr constructor if the selected
-  /// constructor of \c UnderlyingType is a \c constexpr constructor.
-  ///
-  /// \pre <tt>std::constructible_from<UnderlyingType, U></tt> is modeled and
-  /// \c U is not a specialization of \c strong_type.
-  /// \post \c unwrap() returns a value equivalent to \c
-  /// UnderlyingType(std::forward<U>(value)).
-  ///
-  /// \tparam U The type of the value to initialize the underlying value with.
-  /// \param value The value to initialize the underlying value with.
-  /// \throws Any exceptions thrown by the selected constructor of \c
-  /// UnderlyingType.
-  template <typename U = UnderlyingType>
-    requires std::constructible_from<UnderlyingType, U> &&
-             (!strong_type_like<U>)
-  constexpr explicit strong_type(U&& value) noexcept(
-      std::is_nothrow_constructible_v<UnderlyingType, U>)
-      : _m_do_not_use_only_public_to_make_usable_as_nttp(
-            std::forward<U>(value)) {}
-
-  /// \brief Constructor
-  ///
-  /// Initializes the underlying value of the \c strong_type in-place with the
-  /// given arguments.
-  /// This constructor is a \c constexpr constructor if the selected
-  /// constructor of \c UnderlyingType is a \c constexpr constructor.
-  ///
-  /// \pre <tt>std::constructible_from<UnderlyingType, Args...></tt> is
-  /// modeled.
-  /// \post \c unwrap() returns a value equivalent to \c
-  /// UnderlyingType(std::forward<Args>(args)...).
-  ///
-  /// \tparam Args The types of the arguments to initialize the underlying
-  /// value with.
-  /// \param args The arguments to initialize the underlying value with.
-  /// \throws Any exceptions thrown by the selected constructor of \c
-  /// UnderlyingType.
-  template <typename... Args>
-    requires std::constructible_from<UnderlyingType, Args...>
-  constexpr explicit strong_type(std::in_place_t, Args&&... args) noexcept(
-      std::is_nothrow_constructible_v<UnderlyingType, Args...>)
-      : _m_do_not_use_only_public_to_make_usable_as_nttp(
-            std::in_place, std::forward<Args>(args)...) {}
-
-  /// \brief Constructor
-  ///
-  /// Initializes the underlying value of the \c strong_type in-place with the
-  /// given arguments and initializer list.
-  /// This constructor is a \c constexpr constructor if the selected
-  /// constructor of \c UnderlyingType is a \c constexpr constructor.
-  ///
-  /// \pre <tt>std::constructible_from<UnderlyingType,
-  /// std::initializer_list<U>&, Args...></tt> is modeled.
-  /// \post \c unwrap() returns a value equivalent to \c
-  /// UnderlyingType(std::forward<Args>(args)...).
-  ///
-  /// \tparam U The type of the elements in the initializer list.
-  /// \tparam Args The types of the arguments to initialize the underlying
-  /// value with.
-  /// \param il The initializer list to initialize the underlying value with.
-  /// \param args The arguments to initialize the underlying value with.
-  /// \throws Any exceptions thrown by the selected constructor of \c
-  /// UnderlyingType.
-  template <typename U, typename... Args>
-    requires std::constructible_from<UnderlyingType, std::initializer_list<U>&,
-                                     Args...>
-  constexpr explicit strong_type(
+  template <class U, class... Args>
+  constexpr _strong_type_storage(
       std::in_place_t, std::initializer_list<U> il,
       Args&&... args) noexcept(std::
                                    is_nothrow_constructible_v<
-                                       UnderlyingType,
-                                       std::initializer_list<U>&, Args...>)
-      : _m_do_not_use_only_public_to_make_usable_as_nttp(
-            std::in_place, il, std::forward<Args>(args)...) {}
+                                       T, std::initializer_list<U>&, Args&&...>)
+      : _m_do_not_use_directly(std::forward<Args>(args)..., il) {}
 
-  /// \brief Returns a reference to the underlying value.
+  constexpr auto get() & noexcept -> T& { return _m_do_not_use_directly; }
+
+  constexpr auto get() const& noexcept -> const T& {
+    return _m_do_not_use_directly;
+  }
+
+  constexpr auto get() && noexcept -> T&& {
+    return std::move(_m_do_not_use_directly);
+  }
+
+  constexpr auto get() const&& noexcept -> const T&& {
+    return std::move(_m_do_not_use_directly);
+  }
+};
+
+template <class T> class _strong_type_storage<T&> {
+public:
+  T* _m_do_not_use_directly;
+
+  template <class U = T>
+  constexpr _strong_type_storage(U& value) noexcept
+      : _m_do_not_use_directly(&value) {}
+
+  constexpr auto get() noexcept -> std::remove_reference_t<T>& {
+    return *_m_do_not_use_directly;
+  }
+
+  constexpr auto get() const noexcept -> const std::remove_reference_t<T>& {
+    return *_m_do_not_use_directly;
+  }
+};
+
+template <class T> class _strong_type_storage<const T&> {
+  const T* _m_do_not_use_directly;
+
+  template <class U = T>
+  constexpr _strong_type_storage(const U& value) noexcept
+      : _m_do_not_use_directly(&value) {}
+
+  constexpr auto get() const noexcept -> const std::remove_reference_t<T>& {
+    return *_m_do_not_use_directly;
+  }
+};
+} // namespace _detail
+
+template <static_string Tag, class T> class CINA_EBCO strong_type {
+public:
+  template <static_string OtherTag> using rebind = strong_type<OtherTag, T>;
+
+  /// \brief Default constructor
   ///
-  /// \return A reference to the underlying value.
-  constexpr auto unwrap() & noexcept -> std::remove_reference_t<UnderlyingType>&
-    requires(!std::is_const_v<std::remove_reference_t<UnderlyingType>>)
-  {
-    return _m_do_not_use_only_public_to_make_usable_as_nttp.unwrap();
+  /// \pre \c T models \c std::default_initializable.
+  /// \throw Any exceptions thrown by the default constructor of \c T.
+  constexpr strong_type()
+    requires std::default_initializable<T>
+  = default;
+
+  /// \brief Constructor
+  ///
+  /// Constructs a \c strong_type instance with a given value. The given value
+  /// is copied into the \c strong_type instance.
+  ///
+  /// \pre \c T model <tt>std::constructible_from<T, U&&></tt>.
+  /// \post \c this->unwrap() is equal to \c value.
+  ///
+  /// \param value The value to initialize the strong type with.
+  /// \throw Any exceptions thrown by the copy constructor of \c T.
+  constexpr strong_type(const T& value) noexcept(
+      std::is_nothrow_copy_constructible_v<T>)
+    requires std::constructible_from<T, const T&>
+      : _m_do_not_use_directly(value) {}
+
+  /// \brief Constructor
+  ///
+  /// Constructs a \c strong_type instance with a given value. The given value
+  /// is moved into the \c strong_type instance.
+  ///
+  /// \pre \c T model <tt>std::constructible_from<T, T&&></tt>.
+  /// \post \c this->unwrap() is equal to \c value prior to the construction and
+  /// \c value is left in a valid but unspecified state.
+  ///
+  /// \param value The value to initialize the strong type with.
+  /// \throw Any exceptions thrown by the move constructor of \c T.
+  constexpr strong_type(T&& value) noexcept(
+      std::is_nothrow_move_constructible_v<T>)
+    requires std::constructible_from<T, T&&>
+      : _m_do_not_use_directly(std::move(value)) {}
+
+  /// \brief Constructor
+  ///
+  /// Constructs a \c strong_type instance in-place with the given arguments as
+  /// if by \c T(std::forward<Args>(args)...).
+  ///
+  /// \pre \c T model <tt>std::constructible_from<T, Args&&...></tt>.
+  /// \post \c this->unwrap() is equal to \c T(std::forward<Args>(args)...).
+  ///
+  /// \tparam Args The types of the arguments to construct the underlying type.
+  /// \param args The arguments to construct the underlying type.
+  /// \throw Any exceptions thrown by the selected constructor of \c T.
+  template <class... Args>
+    requires(!std::is_reference_v<T> && std::constructible_from<T, Args...>)
+  constexpr strong_type(std::in_place_t, Args&&... args) noexcept(
+      std::is_nothrow_constructible_v<T, Args&&...>)
+      : _m_do_not_use_directly(std::in_place, std::forward<Args>(args)...) {}
+
+  /// \brief Constructor
+  ///
+  /// Constructs a \c strong_type instance in-place with the given initializer
+  /// list and arguments as if by <tt>T(il, std::forward<Args>(args)...)</tt>.
+  ///
+  /// \pre \c T model <tt>std::constructible_from<T, std::initializer_list<U>&,
+  /// Args&&...></tt>.
+  /// \post \c this->unwrap() is equal to <tt>T(il,
+  /// std::forward<Args>(args)...)</tt>.
+  ///
+  /// \tparam U The type of the elements in the initializer list.
+  /// \tparam Args The types of the arguments to construct the underlying type.
+  /// \param il The initializer list to construct the underlying type.
+  /// \param args The arguments to construct the underlying type.
+  /// \throw Any exceptions thrown by the selected constructor of \c T.
+  template <class U, class... Args>
+    requires(!std::is_reference_v<T> &&
+             std::constructible_from<T, std::initializer_list<U>&, Args...>)
+  constexpr strong_type(
+      std::in_place_t, std::initializer_list<U> il,
+      Args&&... args) noexcept(std::
+                                   is_nothrow_constructible_v<
+                                       T, std::initializer_list<U>&, Args&&...>)
+      : _m_do_not_use_directly(std::in_place, il, std::forward<Args>(args)...) {
   }
 
   /// \brief Returns a reference to the underlying value.
   ///
-  /// \return A const-reference to the underlying value.
+  /// \pre \c T is not \c const.
+  ///
+  /// \return A reference to the underlying value.
+  constexpr auto unwrap() & noexcept -> std::remove_reference_t<T>&
+    requires(!std::is_const_v<std::remove_reference_t<T>>)
+  {
+    return _m_do_not_use_directly.get();
+  }
+
+  /// \brief Returns a const reference to the underlying value.
+  ///
+  /// \pre \c T is \c const.
+  ///
+  /// \return A const reference to the underlying value.
+  constexpr auto unwrap() & noexcept
+      -> std::add_const_t<std::remove_reference_t<T>>&
+    requires std::is_const_v<std::remove_reference_t<T>>
+  {
+    return _m_do_not_use_directly.get();
+  }
+
+  /// \brief Returns a const reference to the underlying value.
+  ///
+  /// \pre \c T is \c const.
+  ///
+  /// \return A const reference to the underlying value.
   constexpr auto unwrap() const& noexcept
-      -> const std::remove_reference_t<UnderlyingType>& {
-    return _m_do_not_use_only_public_to_make_usable_as_nttp.unwrap();
+      -> std::add_const_t<std::remove_reference_t<T>>& {
+    return _m_do_not_use_directly.get();
   }
 
   /// \brief Returns an rvalue reference to the underlying value.
   ///
+  /// \pre \c T is not an lvalue reference.
+  ///
   /// \return An rvalue reference to the underlying value.
+  constexpr auto unwrap() && noexcept -> std::remove_reference_t<T>&&
+    requires(!std::is_lvalue_reference_v<T> &&
+             !std::is_const_v<std::remove_reference_t<T>>)
+  {
+    return std::move(_m_do_not_use_directly).get();
+  }
+
+  /// \brief Returns a const rvalue reference to the underlying value.
+  ///
+  /// \pre \c T is not an lvalue reference and is \c const.
+  ///
+  /// \return A const rvalue reference to the underlying value.
   constexpr auto unwrap() && noexcept
-      -> std::remove_reference_t<UnderlyingType>&&
-    requires(!std::is_lvalue_reference_v<UnderlyingType>)
+      -> std::add_const_t<std::remove_reference_t<T>>&
+    requires(!std::is_lvalue_reference_v<T> &&
+             std::is_const_v<std::remove_reference_t<T>>)
   {
-    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp).unwrap();
+    return std::move(_m_do_not_use_directly).get();
   }
 
-  /// \brief Returns a const-rvalue reference to the underlying value.
+  /// \brief Returns a const rvalue reference to the underlying value.
   ///
-  /// \return A const-rvalue reference to the underlying value.
+  /// \pre \c T is not an lvalue reference.
+  ///
+  /// \return A const rvalue reference to the underlying value.
   constexpr auto unwrap() const&& noexcept
-      -> const std::remove_reference_t<UnderlyingType>&&
-    requires(!std::is_lvalue_reference_v<UnderlyingType>)
+      -> std::add_const_t<std::remove_reference_t<T>>&&
+    requires(!std::is_lvalue_reference_v<T>)
   {
-    return std::move(_m_do_not_use_only_public_to_make_usable_as_nttp).unwrap();
+    return std::move(_m_do_not_use_directly).get();
   }
 
-  /// Should only be used by Cina, not by users directly.
-  /// Use unwrap() instead!.
-  _detail::strong_type_storage<UnderlyingType>
-      _m_do_not_use_only_public_to_make_usable_as_nttp;
+  /// Do not use this value directly, use \c unwrap() instead.
+  _detail::_strong_type_storage<T> _m_do_not_use_directly;
 };
-
-// --- Boolean Type ---
-
-/// \brief Strongly-type boolean value.
-///
-/// Class template \c boolean_type is a strongly typed boolean value.
-/// This type provides additional safety over the built-in \c bool by not
-/// being implicitly convertible to integral types and not providing overloads
-/// of any arithmetic operations.
-///
-/// \tparam Tag A unique tag type to distinguish different boolean types.
-template <typename Tag, cxx_boolean T>
-class CINA_EBO boolean_type
-    : public strong_type<Tag, T>,
-      public equality_comparison::skill<boolean_type<Tag, T>>,
-      public less::skill<boolean_type<Tag, T>>,
-      public output_stream::skill<boolean_type<Tag, T>>,
-      public input_stream::skill<boolean_type<Tag, T>> {
-
-  using base_type = strong_type<Tag, T>;
-
-public:
-  template <typename NewTag> using rebind = boolean_type<NewTag, T>;
-
-  /// \brief Constructors
-  ///
-  /// Initializes the underlying boolean value of the \c boolean_type.
-  /// This constructor is a \c constexpr constructor.
-  ///
-  /// \post <tt>unwrap() == value</tt>.
-  ///
-  /// \param value The boolean value to initialize the \c boolean_type with.
-  /// \throws Nothing.
-  template <typename U = T>
-    requires std::convertible_to<U, T>
-  constexpr explicit boolean_type(U&& value) noexcept
-      : base_type(std::forward<U>(value)) {}
-
-  constexpr explicit operator bool() const noexcept { return this->unwrap(); }
-
-private:
-  friend constexpr auto operator&&(const boolean_type lhs,
-                                   const boolean_type rhs) noexcept
-      -> boolean_type<Tag, std::remove_reference_t<T>> {
-    return boolean_type<Tag, std::remove_reference_t<T>>(lhs.unwrap() &&
-                                                         rhs.unwrap());
-  }
-
-  friend constexpr auto operator||(const boolean_type lhs,
-                                   const boolean_type rhs) noexcept
-      -> boolean_type<Tag, std::remove_reference_t<T>> {
-    return boolean_type<Tag, std::remove_reference_t<T>>(lhs.unwrap() ||
-                                                         rhs.unwrap());
-  }
-
-  friend constexpr auto operator!(const boolean_type value) noexcept
-      -> boolean_type<Tag, std::remove_reference_t<T>> {
-    return boolean_type<Tag, std::remove_reference_t<T>>(!value.unwrap());
-  }
-};
-
-// --- Basic Arithmetic Types ---
-
-/// \brief Strongly-type integral type.
-///
-/// Class template \c integral_type is a strongly typed integral type.
-/// It provides all of the same functionality as built-in signed-integral
-/// types except it cannot be instantiated from \c bool, \c char16_t, \c
-/// char32_t, or
-/// \c wchar_t and does not provide bitwise operations. Due to common practice
-/// of \c std::int8_t being an alias for \c char, this class can be
-/// instantiated from \c char. Use \c bitwise_integral_type for integral types
-/// that should support bitwise operations.
-///
-/// \tparam Tag A unique tag type to distinguish different integral types.
-/// \tparam T The underlying integral type.
-template <typename Tag, cxx_arithmetic_integral T>
-class CINA_EBO signed_integral_type
-    : public strong_type<Tag, T>,
-      public three_way_comparison::skill<signed_integral_type<Tag, T>>,
-      public output_stream::skill<signed_integral_type<Tag, T>>,
-      public input_stream::skill<signed_integral_type<Tag, T>>,
-      public addition::skill<signed_integral_type<Tag, T>>,
-      public subtraction::skill<signed_integral_type<Tag, T>>,
-      public multiplication::skill<signed_integral_type<Tag, T>>,
-      public division::skill<signed_integral_type<Tag, T>>,
-      public modulo::skill<signed_integral_type<Tag, T>>,
-      public negation::skill<signed_integral_type<Tag, T>>,
-      public increment::skill<signed_integral_type<Tag, T>>,
-      public decrement::skill<signed_integral_type<Tag, T>> {
-  using base_type = strong_type<Tag, T>;
-
-public:
-  template <typename NewTag> using rebind = signed_integral_type<NewTag, T>;
-
-  /// \brief Constructor
-  ///
-  /// Constructs a \c integral_type from the specified value.
-  ///
-  /// \pre The conversion from \c U to \c T is non-narrowing.
-  /// \post <tt>unwrap() == static_cast<T>(value)</tt>.
-  ///
-  /// \tparam U The type of the value to construct the \c integral_type from.
-  /// \param value The value to construct the \c integral_type from.
-  template <cxx_arithmetic_integral U>
-    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
-                                              std::remove_reference_t<T>> &&
-             (!strong_type_like<U>) && std::convertible_to<U, T>
-  constexpr explicit signed_integral_type(U&& value) noexcept
-      : base_type(std::forward<U>(value)) {}
-};
-
-/// \brief Strongly-type integral type.
-///
-/// Class template \c integral_type is a strongly typed integral type.
-/// It provides all of the same functionality as built-in signed-integral
-/// types except it cannot be instantiated from \c bool, \c char16_t, \c
-/// char32_t, or
-/// \c wchar_t and does not provide bitwise operations. Due to common practice
-/// of \c std::int8_t being an alias for \c char, this class can be
-/// instantiated from \c char. Additionally, this class supports bitwise
-/// oprations.
-///
-/// \tparam Tag A unique tag type to distinguish different integral types.
-/// \tparam T The underlying integral type.
-template <typename Tag, cxx_arithmetic_integral T>
-class bitwise_signed_integral_type
-    : public strong_type<Tag, T>,
-      public three_way_comparison::skill<bitwise_signed_integral_type<Tag, T>>,
-      public output_stream::skill<bitwise_signed_integral_type<Tag, T>>,
-      public input_stream::skill<bitwise_signed_integral_type<Tag, T>>,
-      public addition::skill<bitwise_signed_integral_type<Tag, T>>,
-      public subtraction::skill<bitwise_signed_integral_type<Tag, T>>,
-      public multiplication::skill<bitwise_signed_integral_type<Tag, T>>,
-      public division::skill<bitwise_signed_integral_type<Tag, T>>,
-      public modulo::skill<bitwise_signed_integral_type<Tag, T>>,
-      public negation::skill<bitwise_signed_integral_type<Tag, T>>,
-      public increment::skill<bitwise_signed_integral_type<Tag, T>>,
-      public decrement::skill<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_and::skill<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_or::skill<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_xor::skill<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_not::skill<bitwise_signed_integral_type<Tag, T>>,
-      public bitwise_shift::skill<bitwise_signed_integral_type<Tag, T>> {
-  using base_type = strong_type<Tag, T>;
-
-public:
-  template <typename NewTag>
-  using rebind = bitwise_signed_integral_type<NewTag, T>;
-
-  template <typename U>
-    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
-                                              std::remove_reference_t<T>> &&
-             (!strong_type_like<U>) && std::convertible_to<U, T>
-  constexpr explicit bitwise_signed_integral_type(U&& value) noexcept
-      : base_type(std::forward<U>(value)) {}
-};
-
-template <typename Tag, cxx_unsigned_integral T>
-class CINA_EBO unsigned_integral_type
-    : public strong_type<Tag, T>,
-      public three_way_comparison::skill<signed_integral_type<Tag, T>>,
-      public output_stream::skill<signed_integral_type<Tag, T>>,
-      public input_stream::skill<signed_integral_type<Tag, T>>,
-      public addition::skill<signed_integral_type<Tag, T>>,
-      public subtraction::skill<signed_integral_type<Tag, T>>,
-      public multiplication::skill<signed_integral_type<Tag, T>>,
-      public division::skill<signed_integral_type<Tag, T>>,
-      public modulo::skill<signed_integral_type<Tag, T>>,
-      public negation::skill<signed_integral_type<Tag, T>>,
-      public increment::skill<signed_integral_type<Tag, T>>,
-      public decrement::skill<signed_integral_type<Tag, T>>,
-      public bitwise_and::skill<unsigned_integral_type<Tag, T>>,
-      public bitwise_or::skill<unsigned_integral_type<Tag, T>>,
-      public bitwise_xor::skill<unsigned_integral_type<Tag, T>>,
-      public bitwise_not::skill<unsigned_integral_type<Tag, T>>,
-      public bitwise_shift::skill<unsigned_integral_type<Tag, T>> {
-  using base_type = strong_type<Tag, T>;
-
-public:
-  template <typename NewTag> using rebind = unsigned_integral_type<NewTag, T>;
-
-  template <typename U>
-    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
-                                              std::remove_reference_t<T>> &&
-             (!strong_type_like<U>) && std::convertible_to<U, T>
-  constexpr explicit unsigned_integral_type(U&& value) noexcept
-      : base_type(std::forward<U>(value)) {}
-};
-
-template <typename Tag, std::floating_point T>
-class CINA_EBO floating_point_type
-    : public strong_type<Tag, T>,
-      public three_way_comparison::skill<floating_point_type<Tag, T>>,
-      public output_stream::skill<floating_point_type<Tag, T>>,
-      public input_stream::skill<floating_point_type<Tag, T>>,
-      public addition::skill<floating_point_type<Tag, T>>,
-      public subtraction::skill<floating_point_type<Tag, T>>,
-      public multiplication::skill<floating_point_type<Tag, T>>,
-      public division::skill<floating_point_type<Tag, T>>,
-      public negation::skill<floating_point_type<Tag, T>>,
-      public increment::skill<floating_point_type<Tag, T>>,
-      public decrement::skill<floating_point_type<Tag, T>> {
-  using base_type = strong_type<Tag, T>;
-
-public:
-  template <typename NewTag> using rebind = floating_point_type<NewTag, T>;
-
-  template <typename U>
-    requires non_narrowing_floating_point_conversion<
-                 std::remove_reference_t<U>, std::remove_reference_t<T>> &&
-             (!strong_type_like<U>) && std::convertible_to<U, T>
-  constexpr explicit floating_point_type(U&& value) noexcept
-      : base_type(std::forward<U>(value)) {}
-
-  /// \brief Returns true if two floating-point values are approximately equal.
-  ///
-  /// Returns true if \c other is within the specified tolerance of \c *this.
-  ///
-  /// \param other The other floating-point type to compare with
-  /// \param tolerance The tolerance to use for the comparison; default value is
-  /// \c std::numeric_limits<T>::epsilon
-  /// \return \c \true if the floating point types are approximately equal.
-  constexpr auto is_approximately_equal(
-      const floating_point_type other,
-      const floating_point_type tolerance = floating_point_type{
-          std::numeric_limits<double>::epsilon()}) const noexcept -> bool {
-    return std::abs(this->unwrap() - other.unwrap()) <= tolerance.unwrap();
-  }
-
-  /// \brief Returns true if two floating-point types have the same in-memory
-  /// representation
-  ///
-  /// Compares the in-memory representation of the underlying floating-point
-  /// values of \c this and \c other. This can be used to check for exact
-  /// equality.
-  /// \param other The other floating-point type to compare with.
-  /// \return \c true if the in-memory representations are the same.
-  constexpr auto
-  is_same_representation(const floating_point_type other) const noexcept
-      -> bool {
-    const std::uint64_t this_representation =
-        std::bit_cast<std::uint64_t>(this->unwrap());
-    const std::uint64_t other_representation =
-        std::bit_cast<std::uint64_t>(other.unwrap());
-    return this_representation == other_representation;
-  }
-
-  /// \brief Returns true if \c this is NaN
-  ///
-  /// \return \c true \c this is NaN
-  constexpr auto is_nan() const noexcept -> bool {
-    return std::isnan(this->unwrap());
-  }
-};
-
-// --- Bounded Integral Type ---
-template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
-          std::intmax_t Max>
-class CINA_EBO bounded_integral_type : public strong_type<Tag, T> {
-  using base_type = strong_type<Tag, T>;
-  static_assert(Min <= Max);
-  static_assert(Max <= std::numeric_limits<T>::max() &&
-                Max >= std::numeric_limits<T>::min());
-  static_assert(Min >= std::numeric_limits<T>::min() &&
-                Min <= std::numeric_limits<T>::max());
-
-public:
-  template <typename NewTag>
-  using rebind = bounded_integral_type<NewTag, T, Min, Max>;
-
-  /// The minimum value that the specified \c bounded_integral_type can hold.
-  constexpr static bounded_integral_type<Tag, std::remove_reference_t<T>, Min,
-                                         Max>
-      min{Min};
-  /// The maximum value that the specified \c bounded_integral_type can hold.
-  constexpr static bounded_integral_type<Tag, std::remove_reference_t<T>, Min,
-                                         Max>
-      max{Max};
-
-  template <typename U>
-    requires non_narrowing_integer_conversion<U, T> && (!std::is_reference_v<T>)
-  constexpr explicit bounded_integral_type(const U value) : base_type(value) {
-    constexpr U min_input_value = std::numeric_limits<U>::min();
-    constexpr U max_input_value = std::numeric_limits<U>::max();
-
-    static_assert(min_input_value < Max || max_input_value > Min,
-                  "The range of the input type must not be completely "
-                  "outside the bounds of the bounded_integral_type");
-
-    if constexpr (min_input_value < Min) {
-      if (value < Min) [[unlikely]] {
-        if (std::is_constant_evaluated()) {
-          throw out_of_range("Value is below minimum bound");
-        } else {
-          std::string message =
-              std::format("Value {} is below minimum bound of {}", value, Min);
-          throw out_of_range(message);
-        }
-      }
-    }
-
-    if constexpr (max_input_value > Max) {
-      if (value > Max) [[unlikely]] {
-        if (std::is_constant_evaluated()) {
-          throw out_of_range("Value is above maximum bound");
-        } else {
-          std::string message =
-              std::format("Value {} is above maximum bound of {}", value, Max);
-          throw out_of_range(message);
-        }
-      }
-    }
-  }
-
-  template <typename U>
-    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
-                                              std::remove_reference_t<T>> &&
-             std::convertible_to<U, T> && std::is_reference_v<T>
-  constexpr explicit bounded_integral_type(U&& value)
-      : base_type(std::forward<U>(value)) {
-    constexpr U min_input_value = std::numeric_limits<U>::min();
-    constexpr U max_input_value = std::numeric_limits<U>::max();
-
-    static_assert(min_input_value < Max || max_input_value > Min,
-                  "The range of the input type must not be completely "
-                  "outside the bounds of the bounded_integral_type");
-
-    if constexpr (min_input_value < Min) {
-      if (value < Min) [[unlikely]] {
-        if (std::is_constant_evaluated()) {
-          throw out_of_range("Value is below minimum bound");
-        } else {
-          std::string message =
-              std::format("Value {} is below minimum bound of {}", value, Min);
-          throw out_of_range(message);
-        }
-      }
-    }
-
-    if constexpr (max_input_value > Max) {
-      if (value > Max) [[unlikely]] {
-        if (std::is_constant_evaluated()) {
-          throw out_of_range("Value is above maximum bound");
-        } else {
-          std::string message =
-              std::format("Value {} is above maximum bound of {}", value, Max);
-          throw out_of_range(message);
-        }
-      }
-    }
-  }
-
-  template <typename U, std::intmax_t OtherMin, std::intmax_t OtherMax>
-  constexpr explicit bounded_integral_type(
-      const bounded_integral_type<Tag, U, OtherMin, OtherMax> value)
-      : base_type(value.unwrap()) {
-    constexpr U min_input_value =
-        bounded_integral_type<Tag, U, OtherMin, OtherMax>::min.unwrap();
-    constexpr U max_input_value =
-        bounded_integral_type<Tag, U, OtherMin, OtherMax>::max.unwrap();
-
-    static_assert(min_input_value < Max || max_input_value > Min,
-                  "The range of the input type must not be completely "
-                  "outside the bounds of the bounded_integral_type");
-
-    if constexpr (min_input_value < Min) {
-      if (value.unwrap() < Min) [[unlikely]] {
-        if (std::is_constant_evaluated()) {
-          throw out_of_range("Value is below minimum bound");
-        } else {
-          std::string message =
-              std::format("Value {} is below minimum bound of {}", value, Min);
-          throw out_of_range(message);
-        }
-      }
-    }
-
-    if constexpr (max_input_value > Max) {
-      if (value.unwrap() > Max) [[unlikely]] {
-        if (std::is_constant_evaluated()) {
-          throw out_of_range("Value is above maximum bound");
-        } else {
-          std::string message =
-              std::format("Value {} is above maximum bound of {}", value, Max);
-          throw out_of_range(message);
-        }
-      }
-    }
-  }
-
-  template <typename U, std::intmax_t OtherMin, std::intmax_t OtherMax>
-  constexpr auto
-  operator=(const bounded_integral_type<Tag, U, OtherMin, OtherMax> value)
-      -> bounded_integral_type& {
-    bounded_integral_type temp(value);
-    this->_m_do_not_use_only_public_to_make_usable_as_nttp = temp.unwrap();
-    return *this;
-  }
-};
-
-template <typename Tag, cxx_unsigned_integral T, std::uintmax_t Modulo>
-class modular_integral_type
-    : public strong_type<Tag, T>,
-      public equality_comparison::skill<modular_integral_type<Tag, T, Modulo>>,
-      public three_way_comparison::skill<modular_integral_type<Tag, T, Modulo>>,
-      public output_stream::skill<modular_integral_type<Tag, T, Modulo>>,
-      public input_stream::skill<modular_integral_type<Tag, T, Modulo>>,
-      public addition::skill<modular_integral_type<Tag, T, Modulo>>,
-      public subtraction::skill<modular_integral_type<Tag, T, Modulo>>,
-      public multiplication::skill<modular_integral_type<Tag, T, Modulo>>,
-      public division::skill<modular_integral_type<Tag, T, Modulo>> {
-  using base_type = strong_type<Tag, T>;
-
-public:
-  template <typename NewTag>
-  using rebind = modular_integral_type<NewTag, T, Modulo>;
-
-  static constexpr modular_integral_type modulo{Modulo};
-
-  template <typename U = T>
-    requires non_narrowing_integer_conversion<U, T> && (!strong_type_like<U>) &&
-             std::convertible_to<U, T> && (!std::is_reference_v<T>)
-  constexpr explicit modular_integral_type(const U value) noexcept
-      : base_type(value % Modulo) {}
-
-  template <typename U = T>
-    requires non_narrowing_integer_conversion<std::remove_reference_t<U>,
-                                              std::remove_reference_t<T>> &&
-             (strong_type_like<U>) && std::convertible_to<U, T> &&
-             std::is_reference_v<T>
-  constexpr explicit modular_integral_type(U&& value)
-      : base_type(std::forward<U>(value)) {
-    if (this->unwrap() > Modulo) {
-      throw out_of_range("Value is above modulo");
-    }
-  }
-};
-
-template <typename Tag, std::floating_point T>
-class CINA_EBO complex_type
-    : public strong_type<Tag, std::complex<T>>,
-      public equality_comparison::skill<complex_type<Tag, T>>,
-      public output_stream::skill<complex_type<Tag, T>>,
-      public input_stream::skill<complex_type<Tag, T>>,
-      public addition::skill<complex_type<Tag, T>>,
-      public subtraction::skill<complex_type<Tag, T>>,
-      public multiplication::skill<complex_type<Tag, T>>,
-      public division::skill<complex_type<Tag, T>>,
-      public negation::skill<complex_type<Tag, T>> {
-  using base_type = strong_type<Tag, std::complex<T>>;
-
-  struct real_tag : Tag {};
-  struct imag_tag : Tag {};
-
-public:
-  /// Type alias representing the real part of the complex number.
-  using real_part = floating_point_type<real_tag, T>;
-  /// Type alias representing the imaginary part of the complex number.
-  using imaginary_part = floating_point_type<imag_tag, T>;
-
-  template <typename NewTag> using rebind = complex_type<NewTag, T>;
-
-  constexpr complex_type(const real_part real,
-                         const imaginary_part imag = imaginary_part{0.0})
-      : base_type(std::in_place, real.unwrap(), imag.unwrap()) {}
-
-  constexpr auto real() const -> real_part {
-    return real_part{this->unwrap().real()};
-  }
-
-  constexpr auto imag() const -> imaginary_part {
-    return imaginary_part{this->unwrap().imag()};
-  }
-};
-
-// --- Pointer Types ---
-
-template <typename Tag, cxx_nullable_pointer Pointer>
-class CINA_EBO pointer_type
-    : public strong_type<Tag, Pointer>,
-      public equality_comparison::skill<pointer_type<Tag, Pointer>>,
-      public output_stream::skill<pointer_type<Tag, Pointer>>,
-      public dereference::skill<pointer_type<Tag, Pointer>> {
-  using base_type = strong_type<Tag, Pointer>;
-
-public:
-  using element_type = std::pointer_traits<Pointer>::element_type;
-
-  template <typename NewTag> using rebind = pointer_type<NewTag, Pointer>;
-
-  constexpr pointer_type(std::nullptr_t) noexcept : base_type(nullptr) {}
-
-  template <typename U>
-    requires std::convertible_to<U*, Pointer>
-  constexpr explicit pointer_type(U* const ptr) noexcept : base_type(ptr) {}
-
-  constexpr auto operator=(std::nullptr_t) noexcept -> pointer_type& {
-    this->unwrap() = nullptr;
-    return *this;
-  }
-
-  constexpr explicit operator bool() const noexcept {
-    return this->unwrap() != nullptr;
-  }
-
-  constexpr auto operator->() const noexcept -> Pointer {
-    return this->unwrap();
-  }
-
-private:
-  friend constexpr auto operator==(std::nullptr_t /*lhs*/,
-                                   const pointer_type rhs) -> bool {
-    return rhs.unwrap() == nullptr;
-  }
-
-  friend constexpr auto operator==(const pointer_type lhs,
-                                   std::nullptr_t /*rhs*/) -> bool {
-    return lhs.unwrap() == nullptr;
-  }
-
-  friend constexpr auto operator!=(std::nullptr_t /*lhs*/,
-                                   const pointer_type rhs) -> bool {
-    return rhs.unwrap() != nullptr;
-  }
-
-  friend constexpr auto operator!=(const pointer_type lhs,
-                                   std::nullptr_t /*rhs*/) -> bool {
-    return lhs.unwrap() != nullptr;
-  }
-};
-
-template <typename Tag, typename T, typename Deleter>
-class CINA_EBO unique_ptr_type
-    : public strong_type<Tag, std::unique_ptr<T, Deleter>>,
-      public equality_comparison::skill<unique_ptr_type<Tag, T, Deleter>>,
-      public three_way_comparison::skill<unique_ptr_type<Tag, T, Deleter>>,
-      public output_stream::skill<unique_ptr_type<Tag, T, Deleter>>,
-      public dereference::skill<unique_ptr_type<Tag, T, Deleter>> {
-  using base_type = strong_type<Tag, std::unique_ptr<T, Deleter>>;
-
-public:
-  using pointer =
-      pointer_type<Tag, typename std::unique_ptr<T, Deleter>::pointer>;
-  using element_type = std::unique_ptr<T, Deleter>::element_type;
-  using deleter_type = Deleter;
-
-  template <typename NewTag> using rebind = unique_ptr_type<NewTag, T, Deleter>;
-
-  constexpr unique_ptr_type(std::nullptr_t) noexcept
-      : base_type(std::in_place, nullptr) {}
-
-  CINA_POINTER_CONSTEXPR explicit unique_ptr_type(T* const p) noexcept
-      : base_type(std::in_place, p) {}
-
-  CINA_POINTER_CONSTEXPR explicit unique_ptr_type(const pointer p) noexcept
-      : base_type(std::in_place, p.unwrap()) {}
-
-  CINA_POINTER_CONSTEXPR explicit unique_ptr_type(
-      T* const p, const deleter_type& d) noexcept
-    requires(!std::is_reference_v<deleter_type>)
-      : base_type(std::in_place, p, d) {}
-
-  CINA_POINTER_CONSTEXPR unique_ptr_type(const pointer p,
-                                         const deleter_type& d) noexcept
-    requires(!std::is_reference_v<deleter_type>)
-      : base_type(std::in_place, p.unwrap(), d) {}
-
-  CINA_POINTER_CONSTEXPR unique_ptr_type(const pointer p,
-                                         deleter_type&& d) noexcept
-    requires(!std::is_reference_v<deleter_type>)
-      : base_type(std::in_place, p.unwrap(), std::move(d)) {}
-
-  CINA_POINTER_CONSTEXPR auto reset(const pointer ptr) noexcept -> void {
-    this->unwrap().reset(ptr.unwrap());
-  }
-
-  CINA_POINTER_CONSTEXPR auto release() noexcept -> pointer {
-    return pointer(this->unwrap().release());
-  }
-
-  CINA_POINTER_CONSTEXPR auto swap(unique_ptr_type& other) noexcept -> void {
-    this->unwrap().swap(other.unwrap());
-  }
-
-  CINA_POINTER_CONSTEXPR auto get() const -> pointer {
-    return pointer(this->unwrap().get());
-  }
-
-  CINA_POINTER_CONSTEXPR auto get_deleter() noexcept -> deleter_type& {
-    return this->unwrap().get_deleter();
-  }
-
-  CINA_POINTER_CONSTEXPR auto get_deleter() const noexcept
-      -> const deleter_type& {
-    return this->unwrap().get_deleter();
-  }
-
-  CINA_POINTER_CONSTEXPR explicit operator bool() const noexcept {
-    return this->unwrap() != nullptr;
-  }
-
-  CINA_POINTER_CONSTEXPR auto operator->() const noexcept -> pointer {
-    return pointer{this->unwrap().operator->()};
-  }
-
-private:
-  friend CINA_POINTER_CONSTEXPR auto
-  operator==(std::nullptr_t /*lhs*/, const unique_ptr_type rhs) noexcept
-      -> bool {
-    return rhs.unwrap() == nullptr;
-  }
-
-  friend CINA_POINTER_CONSTEXPR auto operator==(const unique_ptr_type lhs,
-                                                std::nullptr_t /*rhs*/) noexcept
-      -> bool {
-    return lhs.unwrap() == nullptr;
-  }
-
-  friend CINA_POINTER_CONSTEXPR auto
-  operator<=>(std::nullptr_t /*lhs*/, const unique_ptr_type rhs) noexcept {
-    return rhs.unwrap() <=> nullptr;
-  }
-
-  friend CINA_POINTER_CONSTEXPR auto
-  operator<=>(const unique_ptr_type lhs, std::nullptr_t /*rhs*/) noexcept {
-    return lhs.unwrap() <=> nullptr;
-  }
-};
-
-template <typename Tag, typename T, typename... Args>
-auto make_unique(Args&&... args)
-    -> unique_ptr_type<Tag, T, std::default_delete<T>> {
-  return unique_ptr_type<Tag, T, std::default_delete<T>>(
-      std::make_unique<T>(std::forward<Args>(args)...));
-}
-
-template <typename Tag, typename T>
-class CINA_EBO shared_ptr_type
-    : public strong_type<Tag, std::shared_ptr<T>>,
-      public equality_comparison::skill<shared_ptr_type<Tag, T>>,
-      public three_way_comparison::skill<shared_ptr_type<Tag, T>>,
-      public output_stream::skill<shared_ptr_type<Tag, T>>,
-      public dereference::skill<shared_ptr_type<Tag, T>> {
-  using base_type = strong_type<Tag, std::shared_ptr<T>>;
-
-public:
-  using pointer = pointer_type<Tag, typename std::shared_ptr<T>::pointer>;
-  using element_type = std::shared_ptr<T>::element_type;
-
-  template <typename NewTag> using rebind = shared_ptr_type<NewTag, T>;
-
-  constexpr shared_ptr_type(std::nullptr_t) noexcept
-      : base_type(std::in_place, nullptr) {}
-};
-
-// --- Container Types ---
-namespace _detail {
-template <typename Itr, typename Tag> class const_iterator;
-
-template <typename Itr, typename Tag> class iterator {
-public:
-  using difference_type = std::iterator_traits<Itr>::difference_type;
-  using value_type = std::iterator_traits<Itr>::value_type;
-  using pointer = std::iterator_traits<Itr>::pointer;
-  using reference = std::iterator_traits<Itr>::reference;
-  using iterator_category = std::iterator_traits<Itr>::iterator_category;
-
-  constexpr explicit iterator(const Itr itr) : m_itr{itr} {}
-
-  constexpr auto operator*() const -> reference { return *m_itr; }
-
-  constexpr auto operator->() const -> pointer { return m_itr.operator->(); }
-
-  constexpr auto operator++() -> iterator& {
-    ++m_itr;
-    return *this;
-  }
-
-  constexpr auto operator++(int) -> iterator {
-    iterator temp{*this};
-    ++(*this);
-    return temp;
-  }
-
-  constexpr auto operator--() -> iterator&
-    requires std::derived_from<iterator_category,
-                               std::bidirectional_iterator_tag>
-  {
-    --m_itr;
-    return *this;
-  }
-
-  constexpr auto operator--(int) -> iterator
-    requires std::derived_from<iterator_category,
-                               std::bidirectional_iterator_tag>
-  {
-    iterator temp{*this};
-    --(*this);
-    return temp;
-  }
-
-  constexpr auto operator[](const difference_type n) const -> reference
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    return m_itr[n];
-  }
-
-  constexpr auto operator+=(const difference_type n) -> iterator&
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    m_itr += n;
-    return *this;
-  }
-
-  constexpr auto operator-=(const difference_type n) -> iterator&
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    m_itr -= n;
-    return *this;
-  }
-
-private:
-  friend constexpr auto operator==(const iterator lhs, const iterator rhs)
-      -> bool {
-    return lhs.m_itr == rhs.m_itr;
-  }
-
-  friend constexpr auto operator<=>(const iterator lhs, const iterator rhs)
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    return lhs.m_itr <=> rhs.m_itr;
-  }
-
-  friend constexpr auto operator+(const iterator lhs, const difference_type n)
-      -> iterator
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    return iterator(lhs.m_itr + n);
-  }
-
-  friend constexpr auto operator-(const iterator lhs, const difference_type n)
-      -> iterator
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    return iterator(lhs.m_itr - n);
-  }
-
-  friend constexpr auto operator-(const iterator lhs, const iterator rhs)
-      -> difference_type {
-    return lhs.m_itr - rhs.m_itr;
-  }
-
-  template <typename I, typename T> friend class const_iterator;
-
-  Itr m_itr;
-};
-
-template <typename Itr, typename Tag> class const_iterator {
-public:
-  using difference_type = std::iterator_traits<Itr>::difference_type;
-  using value_type = std::iterator_traits<Itr>::value_type;
-  using pointer = std::iterator_traits<Itr>::pointer;
-  using reference = std::iterator_traits<Itr>::reference;
-  using iterator_category = std::iterator_traits<Itr>::iterator_category;
-
-  constexpr explicit const_iterator(const Itr itr) : m_itr{itr} {}
-
-  constexpr const_iterator(const iterator<Itr, Tag> itr) : m_itr{itr.m_itr} {}
-
-  constexpr auto operator*() const -> reference { return *m_itr; }
-
-  constexpr auto operator->() const -> pointer { return m_itr.operator->(); }
-
-  constexpr auto operator++() -> const_iterator& {
-    ++m_itr;
-    return *this;
-  }
-
-  constexpr auto operator++(int) -> const_iterator {
-    iterator temp{*this};
-    ++(*this);
-    return temp;
-  }
-
-  constexpr auto operator--() -> const_iterator&
-    requires std::derived_from<iterator_category,
-                               std::bidirectional_iterator_tag>
-  {
-    --m_itr;
-    return *this;
-  }
-
-  constexpr auto operator--(int) -> const_iterator
-    requires std::derived_from<iterator_category,
-                               std::bidirectional_iterator_tag>
-  {
-    const_iterator temp{*this};
-    --(*this);
-    return temp;
-  }
-
-  constexpr auto operator[](const difference_type n) const -> reference
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    return m_itr[n];
-  }
-
-  constexpr auto operator+=(const difference_type n) -> const_iterator&
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    m_itr += n;
-    return *this;
-  }
-
-  constexpr auto operator-=(const difference_type n) -> const_iterator&
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    m_itr -= n;
-    return *this;
-  }
-
-private:
-  friend constexpr auto operator==(const const_iterator lhs,
-                                   const const_iterator rhs) -> bool {
-    return lhs.m_itr == rhs.m_itr;
-  }
-
-  friend constexpr auto operator<=>(const const_iterator lhs,
-                                    const const_iterator rhs)
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    return lhs.m_itr <=> rhs.m_itr;
-  }
-
-  friend constexpr auto operator+(const const_iterator lhs,
-                                  const difference_type n) -> const_iterator
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    return const_iterator(lhs.m_itr + n);
-  }
-
-  friend constexpr auto operator-(const const_iterator lhs,
-                                  const difference_type n) -> const_iterator
-    requires std::derived_from<iterator_category,
-                               std::random_access_iterator_tag>
-  {
-    return const_iterator(lhs.m_itr - n);
-  }
-
-  friend constexpr auto operator-(const const_iterator lhs,
-                                  const const_iterator rhs) -> difference_type {
-    return lhs.m_itr - rhs.m_itr;
-  }
-
-  Itr m_itr;
-};
-
-template <typename C>
-concept has_size = requires(C c) { c.size(); };
-} // namespace _detail
-
-template <typename Tag, typename Container>
-  requires cxx_container<std::remove_reference_t<Container>>
-class CINA_EBO container_type
-    : public strong_type<Tag, Container>,
-      public equality_comparison::skill<container_type<Tag, Container>>,
-      public three_way_comparison::skill<container_type<Tag, Container>> {
-public:
-  using value_type = std::remove_reference_t<Container>::value_type;
-  using reference = std::remove_reference_t<Container>::reference;
-  using const_reference = std::remove_reference_t<Container>::const_reference;
-  using size_type = std::remove_reference_t<Container>::size_type;
-  using difference_type = std::remove_reference_t<Container>::difference_type;
-  using iterator =
-      _detail::iterator<typename std::remove_reference_t<Container>::iterator,
-                        Tag>;
-  using const_iterator = _detail::const_iterator<
-      typename std::remove_reference_t<Container>::const_iterator, Tag>;
-
-  constexpr container_type()
-    requires std::is_default_constructible_v<Container>
-  = default;
-
-  constexpr container_type(const Container& container)
-      : strong_type<Tag, Container>(container) {}
-
-  constexpr container_type(Container&& container)
-    requires(!std::is_reference_v<Container>)
-      : strong_type<Tag, Container>(std::move(container)) {}
-
-  template <typename... Args>
-  constexpr container_type(std::in_place_t, Args&&... args)
-      : strong_type<Tag, Container>(std::in_place,
-                                    std::forward<Args>(args)...) {}
-
-  constexpr auto begin() -> iterator {
-    return iterator(this->unwrap().begin());
-  }
-
-  constexpr auto begin() const -> const_iterator {
-    return const_iterator(this->unwrap().begin());
-  }
-
-  constexpr auto cbegin() const -> const_iterator {
-    return const_iterator(this->unwrap().cbegin());
-  }
-
-  constexpr auto end() -> iterator { return iterator(this->unwrap().end()); }
-
-  constexpr auto end() const -> const_iterator {
-    return const_iterator(this->unwrap().end());
-  }
-
-  constexpr auto cend() const -> const_iterator {
-    return const_iterator(this->unwrap().cend());
-  }
-
-  constexpr auto
-  swap(container_type& other) noexcept(std::is_nothrow_swappable_v<Container>)
-      -> void {
-    if constexpr (!std::is_reference_v<Container>) {
-      this->unwrap().swap(other.unwrap());
-    } else {
-      using std::swap;
-      swap(this->_m_do_not_use_only_public_to_make_usable_as_nttp,
-           other._m_do_not_use_only_public_to_make_usable_as_nttp);
-    }
-  }
-
-  constexpr auto size() const -> size_type
-    requires _detail::has_size<Container>
-  {
-    return this->unwrap().size();
-  }
-
-  constexpr auto max_size() const -> size_type {
-    return this->unwrap().max_size();
-  }
-
-  [[nodiscard]] constexpr auto empty() const -> bool {
-    return this->unwrap().empty();
-  }
-
-private:
-  friend constexpr auto
-  swap(container_type& lhs,
-       container_type& rhs) noexcept(noexcept(lhs.swap(rhs))) -> void {
-    lhs.swap(rhs);
-  }
-};
-
-namespace _detail {
-template <typename C>
-concept supports_front = requires(C& c, const C& cc) {
-  { c.front() } -> std::same_as<typename C::reference>;
-  { cc.front() } -> std::same_as<typename C::const_reference>;
-};
-
-template <typename C>
-concept supports_back = requires(C& c, const C& cc) {
-  { c.back() } -> std::same_as<typename C::reference>;
-  { cc.back() } -> std::same_as<typename C::const_reference>;
-};
-
-template <typename C>
-concept supports_push_back =
-    requires(C& c, const typename C::value_type& lvalue,
-             typename C::value_type&& rvalue) {
-      c.push_back(lvalue);
-      c.push_back(std::move(rvalue));
-    };
-
-template <typename C>
-concept supports_push_front =
-    requires(C& c, const typename C::value_type& lvalue,
-             typename C::value_type&& rvalue) {
-      c.push_front(lvalue);
-      c.push_front(std::move(rvalue));
-    };
-
-template <typename C, typename... Args>
-concept supports_emplace_back = requires(C& c, Args&&... args) {
-  {
-    c.emplace_back(std::forward<Args>(args)...)
-  } -> std::same_as<typename C::reference>;
-};
-
-template <typename C, typename... Args>
-concept supports_emplace_front = requires(C& c, Args&&... args) {
-  {
-    c.emplace_front(std::forward<Args>(args)...)
-  } -> std::same_as<typename C::reference>;
-};
-
-template <typename C>
-concept supports_pop_back = requires(C& c) { c.pop_back(); };
-
-template <typename C>
-concept supports_pop_front = requires(C& c) { c.pop_front(); };
-} // namespace _detail
-
-template <typename Tag, typename Container>
-  requires cxx_sequence_container<std::remove_reference_t<Container>>
-class CINA_EBO sequence_container_type : public container_type<Tag, Container> {
-  using base_type = container_type<Tag, Container>;
-
-public:
-  using value_type = typename std::remove_reference_t<Container>::value_type;
-  using reference = typename std::remove_reference_t<Container>::reference;
-  using const_reference =
-      typename std::remove_reference_t<Container>::const_reference;
-  using size_type = typename std::remove_reference_t<Container>::size_type;
-  using iterator = typename std::remove_reference_t<Container>::const_iterator;
-  using const_iterator =
-      typename std::remove_reference_t<Container>::const_iterator;
-
-  constexpr sequence_container_type() = default;
-
-  constexpr explicit sequence_container_type(const Container& container)
-      : base_type(container) {}
-
-  constexpr explicit sequence_container_type(Container&& container)
-    requires(!std::is_reference_v<Container>)
-      : base_type(std::move(container)) {}
-
-  constexpr sequence_container_type(const size_type n, const value_type& value)
-      : base_type(std::in_place, n, value) {}
-
-  template <typename InputItr>
-  constexpr sequence_container_type(InputItr first, InputItr last)
-      : base_type(std::in_place, first, last) {}
-
-  constexpr sequence_container_type(std::initializer_list<value_type> il)
-      : base_type(std::in_place, il) {}
-
-  template <typename... Args>
-  constexpr auto emplace(const_iterator pos, Args&&... args) -> iterator {
-    return iterator(
-        this->unwrap().emplace(pos.m_itr, std::forward<Args>(args)...));
-  }
-
-  constexpr auto insert(const_iterator pos, const value_type& value)
-      -> iterator {
-    return iterator(this->unwrap().insert(pos.m_itr, value));
-  }
-
-  constexpr auto insert(const_iterator pos, value_type&& value) -> iterator {
-    return iterator(this->unwrap().insert(pos.m_itr, std::move(value)));
-  }
-
-  constexpr auto insert(const_iterator pos, const size_type n,
-                        const value_type& value) -> iterator {
-    return iterator(this->unwrap().insert(pos.m_itr, n, value));
-  }
-
-  template <typename InputIterator>
-  constexpr auto insert(const_iterator pos, InputIterator first,
-                        InputIterator last) -> iterator {
-    return iterator(this->unwrap().insert(pos.m_itr, first, last));
-  }
-
-  constexpr auto insert(const_iterator pos,
-                        std::initializer_list<value_type> il) -> iterator {
-    return iterator(this->unwrap().insert(pos.m_itr, il));
-  }
-
-  constexpr auto erase(const_iterator pos) -> iterator {
-    return iterator(this->unwrap().erase(pos.m_itr));
-  }
-
-  constexpr auto erase(const_iterator first, const_iterator last) -> iterator {
-    return iterator(this->unwrap().erase(first.m_itr, last.m_itr));
-  }
-
-  constexpr auto clear() -> void { this->unwrap().clear(); }
-
-  template <typename InputIterator>
-  constexpr auto assign(InputIterator first, InputIterator last) -> void {
-    this->unwrap().assign(first, last);
-  }
-
-  constexpr auto assign(std::initializer_list<value_type> il) -> void {
-    this->unwrap().assign(il);
-  }
-
-  constexpr auto assign(const size_type n, const value_type& value) -> void {
-    this->unwrap().assign(n, value);
-  }
-
-  constexpr auto front() -> reference
-    requires _detail::supports_front<Container>
-  {
-    return this->unwrap().front();
-  }
-
-  constexpr auto front() const -> const_reference
-    requires _detail::supports_front<Container>
-  {
-    return this->unwrap().front();
-  }
-
-  constexpr auto back() -> reference
-    requires _detail::supports_back<Container>
-  {
-    return this->unwrap().back();
-  }
-
-  constexpr auto back() const -> const_reference
-    requires _detail::supports_back<Container>
-  {
-    return this->unwrap().back();
-  }
-
-  constexpr auto push_back(const value_type& element) -> void
-    requires _detail::supports_push_back<std::remove_reference_t<Container>>
-  {
-    this->unwrap().push_back(element);
-  }
-
-  constexpr auto push_back(value_type&& element) -> void
-    requires _detail::supports_push_back<std::remove_reference_t<Container>>
-  {
-    this->unwrap().push_back(std::move(element));
-  }
-
-  constexpr auto push_front(const value_type& element) -> void
-    requires _detail::supports_push_front<std::remove_reference_t<Container>>
-  {
-    this->unwrap().push_front(element);
-  }
-
-  constexpr auto push_front(value_type&& element) -> void
-    requires _detail::supports_push_front<std::remove_reference_t<Container>>
-  {
-    this->unwrap().push_front(element);
-  }
-
-  template <typename... Args>
-  constexpr auto emplace_front(Args&&... args) -> reference
-    requires _detail::supports_emplace_front<std::remove_reference_t<Container>,
-                                             decltype(args)...>
-  {
-    return this->unwrap().emplace_front(std::forward<Args>(args)...);
-  }
-
-  template <typename... Args>
-  constexpr auto emplace_back(Args&&... args) -> reference
-    requires _detail::supports_emplace_back<std::remove_reference_t<Container>,
-                                            decltype(args)...>
-  {
-    return this->unwrap().emplace_back(std::forward<Args>(args)...);
-  }
-
-  constexpr auto pop_back() -> void
-    requires _detail::supports_pop_back<std::remove_reference_t<Container>>
-  {
-    this->unwrap().pop_back();
-  }
-
-  constexpr auto pop_front() -> void
-    requires _detail::supports_pop_front<std::remove_reference_t<Container>>
-  {
-    this->unwrap().pop_front();
-  }
-
-protected:
-  template <typename... Args>
-  constexpr sequence_container_type(std::in_place_t, Args&&... args)
-      : base_type(std::in_place, std::forward<Args>(args)...) {}
-};
-
-template <typename Tag, typename Container>
-  requires cxx_allocator_aware_container<std::remove_reference_t<Container>> &&
-           cxx_sequence_container<std::remove_reference_t<Container>>
-class CINA_EBO allocator_aware_sequence_container_type
-    : public sequence_container_type<Tag, Container> {
-  using base_type = sequence_container_type<Tag, Container>;
-
-public:
-  using value_type = base_type::value_type;
-  using reference = base_type::reference;
-  using const_reference = base_type::const_reference;
-  using size_type = base_type::size_type;
-  using iterator = base_type::iterator;
-  using const_iterator = base_type::const_iterator;
-  using allocator_type = std::remove_reference_t<Container>::allocator_type;
-
-  using base_type::base_type;
-
-  constexpr allocator_aware_sequence_container_type()
-    requires std::is_default_constructible_v<allocator_type>
-      : allocator_aware_sequence_container_type(allocator_type()) {}
-
-  constexpr allocator_aware_sequence_container_type(const allocator_type& alloc)
-      : base_type(std::in_place, alloc) {}
-
-  constexpr allocator_aware_sequence_container_type(const size_type n,
-                                                    const value_type& value,
-                                                    const allocator_type& alloc)
-      : base_type(std::in_place, n, value, alloc) {}
-
-  template <typename InputIt>
-  constexpr allocator_aware_sequence_container_type(InputIt first, InputIt last,
-                                                    const allocator_type& alloc)
-      : base_type(std::in_place, first, last, alloc) {}
-
-  constexpr allocator_aware_sequence_container_type(
-      std::initializer_list<value_type> il, const allocator_type& alloc)
-      : base_type(std::in_place, il, alloc) {}
-
-  constexpr auto get_allocator() const -> allocator_type {
-    return this->unwrap().get_allocator();
-  }
-};
-
-// --- Callable Type ---
-
-template <typename Tag, typename T, typename... Args>
-class CINA_EBO callable_type
-    : public strong_type<Tag, T>,
-      public invoke::skill<callable_type<Tag, T, Args...>> {
-  using base_type = strong_type<Tag, T>;
-
-public:
-  template <typename NewTag> using rebind = callable_type<NewTag, T, Args...>;
-
-  template <typename U = T>
-    requires std::constructible_from<T, U> && (!strong_type_like<U>)
-  constexpr explicit callable_type(U&& value) noexcept
-      : base_type(std::forward<U>(value)) {}
-
-  template <typename... Args2>
-
-  constexpr callable_type(std::in_place_t, Args2&&... args) noexcept
-      : base_type(std::in_place, std::forward<Args2>(args)...) {}
-
-  template <typename U, typename... Args2>
-  constexpr callable_type(std::in_place_type_t<U>, Args2&&... args) noexcept
-      : base_type(std::in_place_type<U>, std::forward<Args2>(args)...) {}
-};
-
-template <typename Tag, typename T, typename... Args>
-  requires std::is_function_v<T>
-class callable_type<Tag, T, Args...>
-    : public strong_type<Tag, std::add_pointer_t<T>>,
-      public invoke::skill<callable_type<Tag, T, Args...>> {
-  using base_type = strong_type<Tag, std::add_pointer_t<T>>;
-
-public:
-  template <typename NewTag> using rebind = callable_type<NewTag, T, Args...>;
-
-  template <typename U = std::add_pointer_t<T>>
-    requires std::constructible_from<std::add_pointer_t<T>, U> &&
-             (!strong_type_like<U>)
-  constexpr explicit callable_type(U&& value) noexcept
-      : base_type(std::forward<U>(value)) {}
-};
-
-// --- Type Factory ----
-
-/// \brief Tag type to indicate no skills should be supported.
-MODULE_EXPORT struct no_skills {};
-/// \brief Tag to indicate signed integer type should have bitwise operations
-MODULE_EXPORT struct enable_bitwise {};
-/// \brief Tag to indicate an pointer type with unique ownership semantics.
-MODULE_EXPORT struct owning_pointer {};
-/// \brief Tag to indicate a range constraint for bounded integral types
-/// \tparam Min The minimum value (inclusive) allowed for the integral type.
-/// \tparam Max The maximum value (inclusive) allowed for the integral type.
-MODULE_EXPORT template <std::intmax_t Min, std::intmax_t Max> struct range {};
-/// \brief Tag type to indicate the modulus of a modular integral type.
-/// \tparam Modulo The modulus for the modular integral type.
-MODULE_EXPORT template <std::uintmax_t Modulo>
-  requires(Modulo > 0)
-struct mod {};
-
-/// \cond
-namespace _detail {
-template <typename Tag, typename T, typename... Args> struct new_type_impl {
-  struct impl : strong_type<Tag, T>, Args::template skill<impl>... {
-    using strong_type<Tag, T>::strong_type;
-  };
-
-  using type = impl;
-};
-
-template <typename Tag, typename T> struct new_type_impl<Tag, T> {
-  using type = strong_type<Tag, T>;
-};
-
-template <typename Tag, typename T, typename... Args>
-struct new_type_impl<Tag, T, no_skills, Args...> {
-  using type = strong_type<Tag, T>;
-};
-
-template <typename Tag, cxx_boolean T> struct new_type_impl<Tag, T> {
-  using type = boolean_type<Tag, T>;
-};
-
-template <typename Tag, cxx_arithmetic_integral T>
-struct new_type_impl<Tag, T> {
-  using type = signed_integral_type<Tag, T>;
-};
-
-template <typename Tag, cxx_arithmetic_integral T>
-struct new_type_impl<Tag, T, enable_bitwise> {
-  using type = bitwise_signed_integral_type<Tag, T>;
-};
-
-template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
-          std::intmax_t Max>
-struct new_type_impl<Tag, T, range<Min, Max>> {
-  using type = bounded_integral_type<Tag, T, Min, Max>;
-};
-
-template <typename Tag, cxx_unsigned_integral T> struct new_type_impl<Tag, T> {
-  using type = unsigned_integral_type<Tag, T>;
-};
-
-template <typename Tag, std::floating_point T> struct new_type_impl<Tag, T> {
-  using type = floating_point_type<Tag, T>;
-};
-
-template <typename Tag> struct new_type_impl<Tag, std::complex<float>> {
-  using type = complex_type<Tag, float>;
-};
-
-template <typename Tag> struct new_type_impl<Tag, std::complex<double>> {
-  using type = complex_type<Tag, double>;
-};
-
-template <typename Tag> struct new_type_impl<Tag, std::complex<long double>> {
-  using type = complex_type<Tag, long double>;
-};
-
-template <typename Tag, cxx_nullable_pointer Ptr>
-struct new_type_impl<Tag, Ptr> {
-  using type = pointer_type<Tag, Ptr>;
-};
-
-template <typename Tag, cxx_nullable_pointer Ptr>
-struct new_type_impl<Tag, Ptr, owning_pointer> {
-  using type = unique_ptr_type<Tag, std::remove_pointer_t<Ptr>>;
-};
-
-template <typename, typename> class selected_container_type;
-
-template <typename Tag, typename Container>
-  requires cxx_container<std::remove_reference_t<Container>>
-class selected_container_type<Tag, Container>
-    : public container_type<Tag, Container> {
-public:
-  template <typename NewTag>
-  using rebind = selected_container_type<NewTag, Container>;
-  using container_type<Tag, Container>::container_type;
-};
-
-template <typename Tag, typename Container>
-  requires cxx_sequence_container<std::remove_reference_t<Container>>
-class selected_container_type<Tag, Container>
-    : public sequence_container_type<Tag, Container> {
-public:
-  template <typename NewTag>
-  using rebind = selected_container_type<NewTag, Container>;
-  using sequence_container_type<Tag, Container>::sequence_container_type;
-};
-
-template <typename Tag, typename Container>
-  requires cxx_allocator_aware_container<std::remove_reference_t<Container>> &&
-           cxx_sequence_container<std::remove_reference_t<Container>>
-class selected_container_type<Tag, Container>
-    : public allocator_aware_sequence_container_type<Tag, Container> {
-public:
-  template <typename NewTag>
-  using rebind = selected_container_type<NewTag, Container>;
-
-  using allocator_aware_sequence_container_type<
-      Tag, Container>::allocator_aware_sequence_container_type;
-};
-
-template <typename Tag, typename Container>
-  requires cxx_container<std::remove_reference_t<Container>>
-struct new_type_impl<Tag, Container> {
-  using type = selected_container_type<Tag, Container>;
-};
-
-template <typename> constexpr bool is_std_function = false;
-
-template <typename R, typename... Args>
-constexpr bool is_std_function<std::function<R(Args...)>> = true;
-
-template <typename T> struct function_traits;
-
-template <typename R, typename... Args> struct function_traits<R(Args...)> {
-  using arg_types = std::tuple<Args...>;
-};
-
-template <typename R, typename... Args>
-struct function_traits<R(Args...) noexcept> {
-  using arg_types = std::tuple<Args...>;
-};
-
-template <typename R, typename C, typename... Args>
-struct function_traits<R (C::*)(Args...)> {
-  using arg_types = std::tuple<Args...>;
-};
-
-template <typename R, typename C, typename... Args>
-struct function_traits<R (C::*)(Args...) noexcept> {
-  using arg_types = std::tuple<Args...>;
-};
-
-template <typename R, typename C, typename... Args>
-struct function_traits<R (C::*)(Args...) const> {
-  using arg_types = std::tuple<Args...>;
-};
-
-template <typename R, typename C, typename... Args>
-struct function_traits<R (C::*)(Args...) const noexcept> {
-  using arg_types = std::tuple<Args...>;
-};
-
-template <typename T>
-  requires requires { &T::operator(); } && (!is_std_function<T>)
-struct function_traits<T> : function_traits<decltype(&T::operator())> {};
-
-template <typename T>
-concept is_function_like = requires {
-  typename function_traits<T>::arg_types;
-} && (!is_std_function<T>);
-
-template <typename, typename, typename> struct callable_type_impl;
-
-template <typename Tag, typename T, typename... Args>
-struct callable_type_impl<Tag, T, std::tuple<Args...>> {
-  using type = callable_type<Tag, T, Args...>;
-};
-
-template <typename Tag, typename T>
-  requires is_function_like<T>
-struct new_type_impl<Tag, T> {
-  using type =
-      callable_type_impl<Tag, T, typename function_traits<T>::arg_types>::type;
-};
-
-template <typename Tag, typename R, typename... Args>
-struct new_type_impl<Tag, std::function<R(Args...)>> {
-  using type = callable_type<Tag, std::function<R(Args...)>, Args...>;
-};
-
-template <typename Tag, strong_type_like T> struct new_type_impl<Tag, T> {
-  using type = T::template rebind<Tag>;
-};
-} // namespace _detail
-/// \cond
-
-MODULE_EXPORT template <typename Tag, typename... Args>
-using new_type = typename _detail::new_type_impl<Tag, Args...>::type;
-
-namespace _detail {
-template <strong_type_like T, typename... Args> struct subtype_impl {
-  template <typename... U> static constexpr bool dependent_false = false;
-
-  static_assert(dependent_false<Args...>,
-                "Invalid arguments for cina::subtype");
-};
-
-template <strong_type_like T> struct subtype_impl<T> {
-  using type = T;
-};
-
-template <typename Tag, cxx_arithmetic_integral T, std::intmax_t Min,
-          std::intmax_t Max>
-struct subtype_impl<bounded_integral_type<Tag, T, Min, Max>> {
-  using type = bounded_integral_type<Tag, T, Min, Max>;
-};
-} // namespace _detail
-
-MODULE_EXPORT template <strong_type_like T, typename... Args>
-using subtype = _detail::subtype_impl<T, Args...>::type;
-
-// --- Arithmetic Functions ----
-
-MODULE_EXPORT template <arithmetic T>
-CINA_BASIC_CMATH_CONSTEXPR auto abs(const T x) -> T {
-  return T{std::abs(x.unwrap())};
-}
-
-MODULE_EXPORT template <complex T>
-auto abs(const T& z) -> typename T::real_part {
-  return typename T::real_part{std::abs(z.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T> constexpr auto real(const T x) -> T {
-  return x;
-}
-
-MODULE_EXPORT template <complex T>
-auto real(const T& z) -> typename T::real_part {
-  return z.real();
-}
-
-MODULE_EXPORT template <arithmetic T> constexpr auto imag(const T /*x*/) -> T {
-  return T{0};
-}
-
-MODULE_EXPORT template <complex T>
-auto imag(const T& z) -> typename T::imaginary_part {
-  return z.imag();
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_BASIC_CMATH_CONSTEXPR auto fmod(const T x, const T y) -> T {
-  return T{std::fmod(x.unwrap(), y.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_BASIC_CMATH_CONSTEXPR auto remainder(const T x, const T y) -> T {
-  return T{std::remainder(x.unwrap(), y.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_BASIC_CMATH_CONSTEXPR auto remquo(const T x, const T y, int* quo) -> T {
-  return T{std::remquo(x.unwrap(), y.unwrap(), quo)};
-}
-
-MODULE_EXPORT template <arithmetic Res>
-CINA_BASIC_CMATH_CONSTEXPR auto fma(const arithmetic auto x,
-                                    const arithmetic auto y,
-                                    const arithmetic auto z) -> Res {
-  return Res{std::fma(x.unwrap(), y.unwrap(), z.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_BASIC_CMATH_CONSTEXPR auto fmax(const T x, const T y) -> T {
-  return T{std::fmax(x.unwrap(), y.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_BASIC_CMATH_CONSTEXPR auto fmin(const T x, const T y) -> T {
-  return T{std::fmin(x.unwrap(), y.unwrap())};
-}
-
-MODULE_EXPORT template <typename T>
-CINA_BASIC_CMATH_CONSTEXPR auto fdim(const T x, const T y) -> T {
-  return T{std::fdim(x.unwrap(), y.unwrap())};
-}
-
-MODULE_EXPORT template <floating_point T> auto nan(const char* arg) -> T {
-  return T{std::nan(arg)};
-}
-
-MODULE_EXPORT template <arithmetic Res>
-constexpr auto lerp(const arithmetic auto a, const arithmetic auto b,
-                    const arithmetic auto t) noexcept -> Res {
-  return std::lerp(a.unwrap(), b.unwrap(), t.unwrap());
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_CMATH_CONSTEXPR auto exp(const T x) -> T {
-  return T{std::exp(x.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T> CINA_CMATH_CONSTEXPR auto exp2(T x) -> T {
-  return T{std::exp2(x.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_CMATH_CONSTEXPR auto expm1(T x) -> T {
-  return T{std::expm1(x.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_CMATH_CONSTEXPR auto log(const T x) -> T {
-  return T{std::log(x.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_CMATH_CONSTEXPR auto log10(const T x) -> T {
-  return T{std::log10(x.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_CMATH_CONSTEXPR auto log2(const T x) -> T {
-  return T{std::log2(x.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic Exp>
-CINA_CMATH_CONSTEXPR auto pow(const arithmetic auto base,
-                              const arithmetic auto power) -> Exp {
-  return Exp{std::pow(base.unwrap(), power.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_CMATH_CONSTEXPR auto sqrt(const T x) -> T {
-  return T{std::sqrt(x.unwrap())};
-}
-
-MODULE_EXPORT template <arithmetic T>
-CINA_CMATH_CONSTEXPR auto cbrt(const T x) -> T {
-  return T{std::cbrt(x.unwrap())};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto hypot(const arithmetic auto x,
-                                const arithmetic auto y) -> Res {
-  return Res{std::hypot(x.unwrap(), y.unwrap())};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto hypot(const arithmetic auto x,
-                                const arithmetic auto y,
-                                const arithmetic auto z) -> Res {
-  return Res{std::hypot(x.unwrap(), y.unwrap(), z.unwrap())};
-}
-
-MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
-sin(const arithmetic auto x) {
-  return std::sin(x.unwrap());
-}
-
-MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
-cos(const arithmetic auto x) {
-  return std::cos(x.unwrap());
-}
-
-MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
-tan(const arithmetic auto x) {
-  return std::tan(x.unwrap());
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto asin(const std::floating_point auto x) -> Res {
-  return Res{std::asin(x)};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto asin(const arithmetic auto x) -> Res {
-  return Res{std::asin(x.unwrap())};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto acos(const std::floating_point auto x) -> Res {
-  return Res{std::acos(x)};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto acos(const arithmetic auto x) -> Res {
-  return Res{std::acos(x.unwrap())};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto atan(const std::floating_point auto x) -> Res {
-  return Res{std::atan(x)};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto atan(const arithmetic auto x) -> Res {
-  return Res{std::atan(x.unwrap())};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto atan2(const std::floating_point auto y,
-                                const std::floating_point auto x) -> Res {
-  return Res{std::atan2(y, x)};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto atan2(const arithmetic auto y,
-                                const arithmetic auto x) -> Res {
-  return Res{std::atan2(y.unwrap(), x.unwrap())};
-}
-
-MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
-sinh(const arithmetic auto x) {
-  return std::sinh(x.unwrap());
-}
-
-MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
-cosh(const arithmetic auto x) {
-  return std::cosh(x.unwrap());
-}
-
-MODULE_EXPORT CINA_CMATH_CONSTEXPR std::floating_point auto
-tanh(const arithmetic auto x) {
-  return std::tanh(x.unwrap());
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto asinh(const std::floating_point auto x) -> Res {
-  return Res{std::asinh(x)};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto asinh(const arithmetic auto x) -> Res {
-  return Res{std::asinh(x.unwrap())};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto acosh(const std::floating_point auto x) -> Res {
-  return Res{std::acosh(x)};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto acosh(const arithmetic auto x) -> Res {
-  return Res{std::acosh(x.unwrap())};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto atanh(const std::floating_point auto x) -> Res {
-  return Res{std::atanh(x)};
-}
-
-MODULE_EXPORT template <typename Res>
-CINA_CMATH_CONSTEXPR auto atanh(const arithmetic auto x) -> Res {
-  return Res{std::atanh(x.unwrap())};
-}
-
 } // namespace cina
-
-// --- Standard Library Specializations ---
-template <cina::strong_type_like T> struct std::hash<T> {
-  constexpr auto operator()(const T& value) const noexcept -> std::size_t
-    requires cina::cxx_hashable<cina::underlying_type<T>>
-  {
-    return std::hash<cina::underlying_type<T>>{}(value.unwrap());
-  }
-};
-
-template <cina::strong_type_like T>
-struct std::formatter<T> : std::formatter<std::string_view> {
-  constexpr auto parse(std::format_parse_context& ctx) const {
-    return ctx.begin();
-  }
-
-  constexpr auto format(const T& value, std::format_context& ctx) const {
-    std::string out;
-    std::format_to(std::back_inserter(out), "{}", value.unwrap());
-    return std::formatter<std::string_view>::format(out, ctx);
-  }
-};
-
-template <cina::arithmetic T> struct std::numeric_limits<T> {
-private:
-  using base_type = std::numeric_limits<cina::underlying_type<T>>;
-
-public:
-  constexpr static bool is_specialized = true;
-  constexpr static bool is_signed = base_type::is_signed;
-  constexpr static bool is_integer = base_type::is_integer;
-  constexpr static bool is_exact = base_type::is_exact;
-  constexpr static bool has_infinity = base_type::has_infinity;
-  constexpr static bool has_quiet_NaN = base_type::has_quiet_NaN;
-  constexpr static bool has_signaling_NaN = base_type::has_signaling_NaN;
-  [[deprecated]] constexpr static std::float_denorm_style has_denorm =
-      base_type::has_denorm;
-  constexpr static bool has_denorm_loss = base_type::has_denorm_loss;
-  constexpr static std::float_round_style round_style = base_type::round_style;
-  constexpr static bool is_iec559 = base_type::is_iec559;
-  constexpr static bool is_bounded = base_type::is_bounded;
-  constexpr static bool is_modulo = base_type::is_modulo;
-  constexpr static int digits = base_type::digits;
-  constexpr static int digits10 = base_type::digits10;
-  constexpr static int max_digits10 = base_type::max_digits10;
-  constexpr static int radix = base_type::radix;
-  constexpr static int min_exponent = base_type::min_exponent;
-  constexpr static int min_exponent10 = base_type::min_exponent10;
-  constexpr static int max_exponent = base_type::max_exponent;
-  constexpr static int max_exponent10 = base_type::max_exponent10;
-  constexpr static bool traps = base_type::traps;
-  constexpr static bool tinyness_before = base_type::tinyness_before;
-
-  constexpr static T min() noexcept { return T(base_type::min()); }
-  constexpr static T max() noexcept { return T(base_type::max()); }
-  constexpr static T lowest() noexcept { return T(base_type::lowest()); }
-  constexpr static T epsilon() noexcept { return T(base_type::epsilon()); }
-  constexpr static T round_error() noexcept {
-    return T(base_type::round_error());
-  }
-  constexpr static T infinity() noexcept { return T(base_type::infinity()); }
-  constexpr static T quiet_NaN() noexcept { return T(base_type::quiet_NaN()); }
-  constexpr static T signaling_NaN() noexcept {
-    return T(base_type::signaling_NaN());
-  }
-  constexpr static T denorm_min() noexcept {
-    return T(base_type::denorm_min());
-  }
-};
-
-template <cina::bounded_integral T> struct std::numeric_limits<T> {
-private:
-  using base_type = std::numeric_limits<T>;
-  constexpr static bool is_specialized = true;
-  constexpr static bool is_signed = base_type::is_signed;
-  constexpr static bool is_integer = base_type::is_integer;
-  constexpr static bool is_exact = base_type::is_exact;
-  constexpr static bool has_infinity = base_type::has_infinity;
-  constexpr static bool has_quiet_NaN = base_type::has_quiet_NaN;
-  constexpr static bool has_signaling_NaN = base_type::has_signaling_NaN;
-  [[deprecated]] constexpr static std::float_denorm_style has_denorm =
-      base_type::has_denorm;
-  constexpr static bool has_denorm_loss = base_type::has_denorm_loss;
-  constexpr static std::float_round_style round_style = base_type::round_style;
-  constexpr static bool is_iec559 = base_type::is_iec559;
-  constexpr static bool is_bounded = base_type::is_bounded;
-  constexpr static bool is_modulo = base_type::is_modulo;
-  constexpr static int digits = base_type::digits;
-  constexpr static int digits10 = base_type::digits10;
-  constexpr static int max_digits10 = base_type::max_digits10;
-  constexpr static int radix = base_type::radix;
-  constexpr static int min_exponent = base_type::min_exponent;
-  constexpr static int min_exponent10 = base_type::min_exponent10;
-  constexpr static int max_exponent = base_type::max_exponent;
-  constexpr static int max_exponent10 = base_type::max_exponent10;
-  constexpr static bool traps = base_type::traps;
-  constexpr static bool tinyness_before = base_type::tinyness_before;
-
-  constexpr static T min() noexcept { return T::min; }
-  constexpr static T max() noexcept { return T::max; }
-  constexpr static T lowest() noexcept { return T::min; }
-  constexpr static T epsilon() noexcept { return T::min; }
-  constexpr static T round_error() noexcept { return T::min; }
-  constexpr static T infinity() noexcept { return T::min; }
-  constexpr static T quiet_NaN() noexcept { return T::min; }
-  constexpr static T signaling_NaN() noexcept { return T::min; }
-  constexpr static T denorm_min() noexcept { return T::min; }
-};
 
 #endif
