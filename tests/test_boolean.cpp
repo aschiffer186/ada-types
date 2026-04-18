@@ -7,7 +7,7 @@
 
 using namespace cina;
 
-TEST(TestBoolean, TestCXXConcepts) {
+TEST(TestBoolean, TestCXXProperties) {
   using boolean = boolean_type<"Test", bool>;
 
   EXPECT_FALSE(std::default_initializable<boolean>);
@@ -15,6 +15,7 @@ TEST(TestBoolean, TestCXXConcepts) {
   EXPECT_TRUE(std::copy_constructible<boolean>);
   EXPECT_TRUE(std::movable<boolean>);
   EXPECT_TRUE(std::copyable<boolean>);
+  EXPECT_TRUE(std::equality_comparable<boolean>);
 
   EXPECT_TRUE(std::is_nothrow_copy_constructible_v<boolean>);
   EXPECT_TRUE(std::is_trivially_copy_constructible_v<boolean>);
@@ -220,4 +221,21 @@ TEST(TestBoolean, TestConversionToBool) {
   boolean4 b4{true};
   const dont_care dc4 = b4 ? cTRUE : cFALSE;
   EXPECT_EQ(dc4, cTRUE);
+}
+
+TEST(TestBoolean, TestLogicalNotOperator) {
+  using boolean1 = new_type<"Boolean1", bool>;
+
+  boolean1 b1{true};
+  boolean1 b2{false};
+
+  EXPECT_FALSE(!b1);
+  EXPECT_TRUE(!b2);
+
+  struct boolean2 : new_type<"Boolean2", bool> {
+    using new_type<"Boolean2", bool>::new_type;
+  };
+
+  boolean2 b3{true};
+  EXPECT_FALSE(!b3);
 }

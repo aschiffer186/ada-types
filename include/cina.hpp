@@ -5,22 +5,23 @@
 #ifndef CINA_HPP
 #define CINA_HPP
 
-#include <format>
-#include <iterator>
-#include <ostream>
-#include <string>
-#include <string_view>
+#include <compare>
 #if defined(_MSC_VER) && _MSC_VER >= 1910
 #define CINA_EBCO __declspec(empty_bases)
 #else
 #define CINA_EBCO
 #endif
 
-#include <algorithm>  // ranges::copy
-#include <concepts>   // constructible_from, default_initializable, same_as
-#include <cstddef>    // size_t
-#include <functional> // hash
+#include <algorithm> // ranges::copy
+#include <concepts> // constructible_from, default_initializable, floating_point, integral, same_as
+#include <cstddef>          // size_t
+#include <format>           // formatter
+#include <functional>       // hash
 #include <initializer_list> // initializer_list
+#include <iterator>         // back_inserter
+#include <ostream>          // ostream
+#include <string>           // string
+#include <string_view>      // string_view
 #include <type_traits> // is_nothrow_constructible, is_nothrow_copy_constructible, is_nothrow_move_constructible, remove_cvref_t, remove_reference_t, void_t
 #include <utility>     // declval, forward
 
@@ -62,17 +63,44 @@ concept cxx_boolean = std::same_as<std::remove_cvref_t<T>, bool>;
 template <class T>
 concept cxx_arithmetic_signed_integral =
     std::signed_integral<std::remove_cvref_t<T>> &&
-    (!std::same_as<std::remove_cvref_t<T>, bool>) &&
     (!std::same_as<std::remove_cvref_t<T>, char8_t>) &&
     (!std::same_as<std::remove_cvref_t<T>, char16_t>) &&
     (!std::same_as<std::remove_cvref_t<T>, char32_t>) &&
     (!std::same_as<std::remove_cvref_t<T>, wchar_t>);
 
+template <class T>
+concept cxx_arithmetic_unsigned_integral =
+    std::unsigned_integral<std::remove_cvref_t<T>> &&
+    (!std::same_as<std::remove_cvref_t<T>, bool>);
+
+/// \brief Concept modeling that a conversion between two integers is
+/// non-narrowing.
+///
+/// A conversion between two integers is non-narrowing if both integers have the
+/// same signedness and no information will be lost during the conversion.
+///
+/// \param From The type to convert from.
+/// \param To The type to convert to.
 template <class From, class To>
 concept cxx_non_narrowing_integral_conversion =
     std::integral<From> && std::integral<To> &&
     std::is_signed_v<From> == std::is_signed_v<To> &&
     sizeof(From) <= sizeof(To);
+
+/// \brief Concept modeling that a conversion between two floating-point types
+/// is non-narrowing.
+///
+/// This conversion is non-narrowing if the type being convert from is an
+/// integer or if both types are floating-point types and the type being
+/// converted to is at least as large as the type being converted from.
+//
+/// \param From The type to convert from.
+/// \param To The type to convert to.
+template <class From, class To>
+concept cxx_non_narrowing_floating_point_conversion =
+    (std::integral<From> && std::floating_point<To>) ||
+    (std::floating_point<From> && std::floating_point<To> &&
+     sizeof(From) <= sizeof(To));
 
 // --- Forward Declations ---
 
@@ -101,13 +129,36 @@ template <static_string Tag, cxx_boolean T> class boolean_type;
 ///
 /// Class template \c signed_integral_type is a strongly-typed wrapper around a
 /// signed integral value. However, the set of supported types is limited to
-/// "arithmetic" signed integer types, which excludes \c bool and character
-/// types. The type also prohibits narrowing conversions upon construction.
+/// "arithmetic" signed integer types, which character
+/// types (except <tt>signed char</tt> due to the fact \c std::int8_t is often
+/// an alias for <tt>signed char</tt>). The type also prohibits narrowing
+/// conversions upon construction.
 ///
 /// \tparam Tag The tag of the signed integral type.
 /// \tparam T The underlying signed integral type. May be a reference.
 template <static_string Tag, cxx_arithmetic_signed_integral T>
 class signed_integral_type;
+
+/// \brief Strongly-typed unsigned integer.
+///
+/// Class template \c unsigned_integral_type is a strongly-typed wrapper around
+/// an unsigned integral value. However, the set of supported types is limited
+/// to "arithmetic" unsigned integer types, which excludes \c bool. The type
+/// also prohibits narrowing conversions upon construction.
+///
+/// \tparam Tag The tag of the unsigned integral type.
+/// \tparam T The underlying unsigned integral type. May be a reference.
+template <static_string Tag, cxx_arithmetic_unsigned_integral T>
+class unsigned_integral_type;
+
+/// \brief Strongly-typed floating-point number.
+///
+/// Class template \c floating_point_type is a strongly-typed wrapper around a
+/// floating-point value.
+///
+/// \tparam Tag The tag of the floating-point type.
+/// \tparam T The underlying floating-point type. May be a reference.
+template <static_string Tag, std::floating_point T> class floating_point_type;
 
 /// --- Cina Concepts and Type Traits ----
 
@@ -135,6 +186,18 @@ constexpr inline bool _is_signed_integral_type = false;
 template <class T>
 constexpr inline bool _is_signed_integral_type<
     T, std::void_t<decltype(_as_signed_integral_type(std::declval<T>()))>> =
+    true;
+
+template <static_string Tag, cxx_arithmetic_unsigned_integral T>
+auto _as_unsigned_integral_type(unsigned_integral_type<Tag, T>)
+    -> unsigned_integral_type<Tag, T>;
+
+template <class T, class = void>
+constexpr inline bool _is_unsigned_integral_type = false;
+
+template <class T>
+constexpr inline bool _is_unsigned_integral_type<
+    T, std::void_t<decltype(_as_unsigned_integral_type(std::declval<T>()))>> =
     true;
 } // namespace _detail
 /// \endcond
@@ -167,7 +230,10 @@ template <class T>
 concept signed_integral = _detail::_is_signed_integral_type<T>;
 
 template <class T>
-concept integral = signed_integral<T>;
+concept unsigned_integral = _detail::_is_unsigned_integral_type<T>;
+
+template <class T>
+concept integral = signed_integral<T> || unsigned_integral<T>;
 
 // --- Skills ---
 
@@ -178,22 +244,16 @@ concept integral = signed_integral<T>;
 /// std::equality_comparable concept.
 struct equality_comparison {
   template <class Derived> struct skill {
-    friend constexpr auto operator==(const Derived& lhs,
-                                     const Derived& rhs) noexcept -> bool {
+    friend constexpr auto operator==(const Derived& lhs, const Derived& rhs)
+        -> bool {
       return lhs.unwrap() == rhs.unwrap();
     }
   };
 };
 
-/// \brief Skill representing three-way comparison.
-///
-/// Deriving from the skill adds the ability to compare two instances of the
-/// same type using the three-way comparison operator. This allows types to
-/// model the \c std::three_way_comparable concept.
 struct three_way_comparison {
   template <class Derived> struct skill {
-    friend constexpr auto operator<=>(const Derived& lhs,
-                                      const Derived& rhs) noexcept {
+    friend constexpr auto operator<=>(const Derived& lhs, const Derived& rhs) {
       return lhs.unwrap() <=> rhs.unwrap();
     }
   };
@@ -209,7 +269,19 @@ struct output_stream {
     friend constexpr auto operator<<(std::basic_ostream<CharT, Traits>& os,
                                      const Derived& value)
         -> std::basic_ostream<CharT, Traits>& {
-      return os << value.unwrap();
+      if constexpr (std::is_same_v<
+                        std::remove_cvref_t<underlying_type<Derived>>,
+                        unsigned char> &&
+                    integral<Derived>) {
+        return os << +value.unwrap();
+      } else if constexpr (std::is_same_v<
+                               std::remove_cvref_t<underlying_type<Derived>>,
+                               signed char> &&
+                           integral<Derived>) {
+        return os << +value.unwrap();
+      } else {
+        return os << value.unwrap();
+      }
     }
   };
 };
@@ -289,6 +361,14 @@ struct subtraction {
   };
 };
 
+/// \brief Skill representing multiplication.
+///
+/// Deriving from this skill adds the ability to multiply two instances of the
+/// same type.
+///
+/// \note The type of the result of multiplication may be different from the
+/// type of the operands. An example of when this is the case is when expression
+/// templates are used.
 struct multiplication {
   template <class Derived> struct skill {
     friend constexpr auto operator*(const Derived& lhs, const Derived& rhs) {
@@ -374,6 +454,111 @@ struct decrement {
   };
 };
 
+struct bitwise_and {
+  template <class Derived> struct skill {
+    friend constexpr auto operator&=(Derived& lhs, const Derived& rhs)
+        -> Derived& {
+      lhs.unwrap() &= rhs.unwrap();
+      return lhs;
+    }
+
+    friend constexpr auto operator&(const Derived& lhs, const Derived& rhs)
+        -> Derived {
+      return lhs &= rhs;
+    }
+  };
+};
+
+struct bitwise_or {
+  template <class Derived> struct skill {
+    friend constexpr auto operator|=(Derived& lhs, const Derived& rhs)
+        -> Derived& {
+      lhs.unwrap() |= rhs.unwrap();
+      return lhs;
+    }
+
+    friend constexpr auto operator|(const Derived& lhs, const Derived& rhs)
+        -> Derived {
+      return lhs |= rhs;
+    }
+  };
+};
+
+struct bitwise_xor {
+  template <class Derived> struct skill {
+    friend constexpr auto operator^=(Derived& lhs, const Derived& rhs)
+        -> Derived& {
+      lhs.unwrap() ^= rhs.unwrap();
+      return lhs;
+    }
+
+    friend constexpr auto operator^(const Derived& lhs, const Derived& rhs)
+        -> Derived {
+      return lhs ^= rhs;
+    }
+  };
+};
+
+struct bitwise_not {
+  template <class Derived> struct skill {
+    friend constexpr auto operator~(const Derived& value) -> Derived {
+      return Derived(~value.unwrap());
+    }
+  };
+};
+
+struct bitwise_shift {
+  template <class Derived> struct skill {
+    template <class U>
+    friend constexpr auto operator>>=(Derived& lhs, const U& rhs) -> Derived& {
+      lhs.unwrap() >> rhs;
+      return lhs;
+    }
+
+    template <strong_type_like U>
+    friend constexpr auto operator>>=(Derived& lhs, const U& rhs) -> Derived& {
+      lhs.unwrap() >>= rhs.unwrap();
+      return lhs;
+    }
+
+    template <class U>
+    friend constexpr auto operator<<=(Derived& lhs, const U& rhs) -> Derived& {
+      lhs.unwrap() << rhs;
+      return lhs;
+    }
+
+    template <strong_type_like U>
+    friend constexpr auto operator<<=(Derived& lhs, const U& rhs) -> Derived& {
+      lhs.unwrap() <<= rhs.unwrap();
+      return lhs;
+    }
+
+    template <class U>
+    friend constexpr auto operator>>(const Derived& lhs, const U& rhs)
+        -> Derived {
+      return lhs >> rhs;
+    }
+
+    template <strong_type_like U>
+    friend constexpr auto operator>>(const Derived& lhs, const U& rhs)
+        -> Derived {
+      return lhs >>= rhs;
+    }
+
+    template <class U>
+    friend constexpr auto operator<<(const Derived& lhs, const U& rhs)
+        -> Derived {
+      return lhs << rhs;
+    }
+
+    template <strong_type_like U>
+    friend constexpr auto operator<<(const Derived& lhs, const U& rhs)
+        -> Derived {
+      return lhs <<= rhs;
+    }
+  };
+};
+
 // --- Strong Type Definition ---
 
 /// \cond
@@ -451,7 +636,11 @@ public:
 } // namespace _detail
 /// \endcond
 
-template <static_string Tag, class T> class CINA_EBCO strong_type {
+template <static_string Tag, class T>
+class CINA_EBCO strong_type
+    : public equality_comparison::skill<strong_type<Tag, T>> {
+  using _storage_type = _detail::_strong_type_storage<T>;
+
 public:
   template <class U> using _rebind = strong_type<Tag, U>;
 
@@ -493,6 +682,41 @@ public:
       std::is_nothrow_move_constructible_v<T>)
     requires(!std::is_reference_v<T> && std::constructible_from<T, T &&>)
       : _m_do_not_use_directly(std::move(value)) {}
+
+  /// \brief Converting Constructor
+  ///
+  /// Consructs a \c strong_type instance from another \c strong_type instance
+  /// with a different underlying type.
+  ///
+  /// \pre <tt>std::constructible_from<T, const U&></tt> is modeled.
+  /// \post \c other is not modified.
+  ///
+  /// \tparam U The underlying type of the other \c strong_type instance.
+  /// \param other The other \c strong_type instance to construct from.
+  /// \throw Any exceptions thrown by the selected constrctor of \c T.
+  template <class U>
+  constexpr explicit strong_type(const strong_type<Tag, U>& other) noexcept(
+      std::is_nothrow_constructible_v<T, const U&>)
+    requires std::constructible_from<T, const U&>
+      : _m_do_not_use_directly(other.unwrap()) {}
+
+  /// \brief Converting Constructor
+  ///
+  /// Consructs a \c strong_type instance from another \c strong_type instance
+  /// with a different underlying type.
+  ///
+  /// \pre <tt>std::constructible_from<T, U&&></tt> is modeled and \c T is not a
+  /// reference type.
+  /// \post \c other is left in a valid but unspecified state.
+  ///
+  /// \tparam U The underlying type of the other \c strong_type instance.
+  /// \param other The other \c strong_type instance to construct from.
+  /// \throw Any exceptions thrown by the selected constrctor of \c T.
+  template <class U>
+  constexpr explicit strong_type(strong_type<Tag, U>&& other) noexcept(
+      std::is_nothrow_constructible_v<T, U&&>)
+    requires(!std::is_reference_v<T> && std::constructible_from<T, U &&>)
+      : _m_do_not_use_directly(std::move(other.unwrap())) {}
 
   /// \brief Constructor
   ///
@@ -542,7 +766,8 @@ public:
   /// \pre \c T is not \c const.
   ///
   /// \return A reference to the underlying value.
-  constexpr auto unwrap() & noexcept -> std::remove_reference_t<T>& {
+  [[nodiscard]] constexpr auto unwrap() & noexcept
+      -> std::remove_reference_t<T>& {
     return _m_do_not_use_directly.get();
   }
 
@@ -551,7 +776,7 @@ public:
   /// \pre \c T is \c const.
   ///
   /// \return A const reference to the underlying value.
-  constexpr auto unwrap() const& noexcept
+  [[nodiscard]] constexpr auto unwrap() const& noexcept
       -> std::add_const_t<std::remove_reference_t<T>>& {
     return _m_do_not_use_directly.get();
   }
@@ -561,7 +786,8 @@ public:
   /// \pre \c T is not an lvalue reference.
   ///
   /// \return An rvalue reference to the underlying value.
-  constexpr auto unwrap() && noexcept -> std::remove_reference_t<T>&&
+  [[nodiscard]] constexpr auto unwrap() && noexcept
+      -> std::remove_reference_t<T>&&
     requires(!std::is_lvalue_reference_v<T>)
   {
     return std::move(_m_do_not_use_directly).get();
@@ -572,7 +798,7 @@ public:
   /// \pre \c T is not an lvalue reference.
   ///
   /// \return A const rvalue reference to the underlying value.
-  constexpr auto unwrap() const&& noexcept
+  [[nodiscard]] constexpr auto unwrap() const&& noexcept
       -> std::add_const_t<std::remove_reference_t<T>>&&
     requires(!std::is_lvalue_reference_v<T>)
   {
@@ -632,10 +858,12 @@ public:
   }
 };
 
-/// --- Integral Type Definitions ---
+// --- Integral Type Definitions ---
+
 template <static_string Tag, cxx_arithmetic_signed_integral T>
-class signed_integral_type
+class CINA_EBCO signed_integral_type
     : public strong_type<Tag, T>,
+      public three_way_comparison::skill<signed_integral_type<Tag, T>>,
       public addition::skill<signed_integral_type<Tag, T>>,
       public subtraction::skill<signed_integral_type<Tag, T>>,
       public multiplication::skill<signed_integral_type<Tag, T>>,
@@ -644,7 +872,6 @@ class signed_integral_type
       public negation::skill<signed_integral_type<Tag, T>>,
       public increment::skill<signed_integral_type<Tag, T>>,
       public decrement::skill<signed_integral_type<Tag, T>>,
-      public three_way_comparison::skill<signed_integral_type<Tag, T>>,
       public output_stream::skill<signed_integral_type<Tag, T>>,
       public input_stream::skill<signed_integral_type<Tag, T>> {
   using base_type = strong_type<Tag, T>;
@@ -652,13 +879,92 @@ class signed_integral_type
 public:
   template <class U> using _rebind = signed_integral_type<Tag, U>;
 
+  /// \brief Constructor.
+  ///
+  /// \pre Converting from \c U to \c T is a non-narrowing conversion and \c T
+  /// is not a reference
+  /// \post \c this->unwrap() is equal to \c value.
+  ///
+  /// \tparam U The type to convert from.
+  /// \param value The value to initialize the signed integral type with.
   template <cxx_arithmetic_signed_integral U>
     requires cxx_non_narrowing_integral_conversion<U, T> &&
              (!std::is_reference_v<T>)
   constexpr explicit signed_integral_type(const U value) noexcept
       : base_type(static_cast<T>(value)) {}
 
+  /// \brief Constructor.
+  ///
+  /// \pre \c T is a reference type.
+  /// \post \c this->unwrap() is a reference to \c value.
+  ///
+  /// \param value The reference to initialize the signed integral type with.
   constexpr explicit signed_integral_type(const T& value) noexcept
+    requires std::is_reference_v<T>
+      : base_type(value) {}
+};
+
+template <static_string Tag, cxx_arithmetic_unsigned_integral T>
+class CINA_EBCO unsigned_integral_type
+    : public strong_type<Tag, T>,
+      public three_way_comparison::skill<unsigned_integral_type<Tag, T>>,
+      public addition::skill<unsigned_integral_type<Tag, T>>,
+      public subtraction::skill<unsigned_integral_type<Tag, T>>,
+      public multiplication::skill<unsigned_integral_type<Tag, T>>,
+      public division::skill<unsigned_integral_type<Tag, T>>,
+      public modulo::skill<unsigned_integral_type<Tag, T>>,
+      public increment::skill<unsigned_integral_type<Tag, T>>,
+      public decrement::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_and::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_or::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_xor::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_not::skill<unsigned_integral_type<Tag, T>>,
+      public bitwise_shift::skill<unsigned_integral_type<Tag, T>>,
+      public output_stream::skill<unsigned_integral_type<Tag, T>>,
+      public input_stream::skill<unsigned_integral_type<Tag, T>> {
+  using base_type = strong_type<Tag, T>;
+
+public:
+  template <class U> using _rebind = unsigned_integral_type<Tag, U>;
+
+  template <std::unsigned_integral U>
+    requires cxx_non_narrowing_integral_conversion<U, T> &&
+             (!std::is_reference_v<T>)
+  constexpr explicit unsigned_integral_type(const U value) noexcept
+      : base_type(static_cast<T>(value)) {}
+
+  constexpr explicit unsigned_integral_type(const T& value) noexcept
+    requires std::is_reference_v<T>
+      : base_type(value) {}
+};
+
+// --- Floating-Point Type Definition ---
+
+template <static_string Tag, std::floating_point T>
+class CINA_EBCO floating_point_type
+    : public strong_type<Tag, T>,
+      public three_way_comparison::skill<floating_point_type<Tag, T>>,
+      public addition::skill<floating_point_type<Tag, T>>,
+      public subtraction::skill<floating_point_type<Tag, T>>,
+      public multiplication::skill<floating_point_type<Tag, T>>,
+      public division::skill<floating_point_type<Tag, T>>,
+      public negation::skill<floating_point_type<Tag, T>>,
+      public increment::skill<floating_point_type<Tag, T>>,
+      public decrement::skill<floating_point_type<Tag, T>>,
+      public output_stream::skill<floating_point_type<Tag, T>>,
+      public input_stream::skill<floating_point_type<Tag, T>> {
+  using base_type = strong_type<Tag, T>;
+
+public:
+  template <class U> using _rebind = floating_point_type<Tag, U>;
+
+  template <std::floating_point U>
+    requires cxx_non_narrowing_floating_point_conversion<U, T> &&
+             (!std::is_reference_v<T>)
+  constexpr explicit floating_point_type(const U value) noexcept
+      : base_type(static_cast<T>(value)) {}
+
+  constexpr explicit floating_point_type(const T& value) noexcept
     requires std::is_reference_v<T>
       : base_type(value) {}
 };
@@ -685,6 +991,21 @@ struct _new_type_impl<Tag, T, no_skills, Args...> {
 
 template <static_string Tag, cxx_boolean T> struct _new_type_impl<Tag, T> {
   using type = boolean_type<Tag, T>;
+};
+
+template <static_string Tag, cxx_arithmetic_signed_integral T>
+struct _new_type_impl<Tag, T> {
+  using type = signed_integral_type<Tag, T>;
+};
+
+template <static_string Tg, cxx_arithmetic_unsigned_integral T>
+struct _new_type_impl<Tg, T> {
+  using type = unsigned_integral_type<Tg, T>;
+};
+
+template <static_string Tag, std::floating_point T>
+struct _new_type_impl<Tag, T> {
+  using type = floating_point_type<Tag, T>;
 };
 } // namespace _detail
 /// \endcond
