@@ -88,6 +88,8 @@ TEST(TestBoolean, TestConstructor) {
   bool bool2{false};
   boolean_cref b5{bool2};
   EXPECT_FALSE(b5.unwrap());
+  EXPECT_TRUE((std::constructible_from<boolean_cref, bool&>));
+  EXPECT_FALSE((std::constructible_from<boolean_cref, bool&&>));
 
   const bool bool3{true};
   boolean_cref b6{bool3};
@@ -238,4 +240,20 @@ TEST(TestBoolean, TestLogicalNotOperator) {
 
   boolean2 b3{true};
   EXPECT_FALSE(!b3);
+
+  using boolean_ref = new_type<"BooleanRef", bool&>;
+  bool bool1{true};
+  boolean_ref b4{bool1};
+  decltype(auto) not_b4 = !b4;
+  EXPECT_TRUE(
+      (std::same_as<decltype(not_b4), cina::boolean_type<"BooleanRef", bool>>));
+  EXPECT_FALSE(not_b4);
+
+  using const_boolean_ref = new_type<"ConstBooleanRef", const bool&>;
+  bool bool2{false};
+  const_boolean_ref b5{bool2};
+  decltype(auto) not_b5 = !b5;
+  EXPECT_TRUE((std::same_as<decltype(not_b5),
+                            cina::boolean_type<"ConstBooleanRef", bool>>));
+  EXPECT_TRUE(not_b5);
 }

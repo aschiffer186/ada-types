@@ -49,6 +49,22 @@ template <std::size_t N> struct static_string {
 
 template <std::size_t N> static_string(const char (&)[N]) -> static_string<N>;
 
+/// \brief Concatenates two instances of \c static_string.
+///
+/// \tparam LHSSize The size of the left-hand side string.
+/// \tparam RHSSize The size of the right-hand side string.
+/// \param lhs The left-hand side string.
+/// \param rhs The right-hand side string.
+/// \return The concatenated string.
+template <std::size_t LHSSize, std::size_t RHSSize>
+constexpr auto operator+(const static_string<LHSSize>& lhs,
+                         const static_string<RHSSize>& rhs) {
+  static_string<LHSSize + RHSSize - 1> result{};
+  std::ranges::copy(lhs.data, result.data);
+  std::ranges::copy(rhs.data, result.data + LHSSize - 1);
+  return result;
+};
+
 // --- C++ Language Concepts ---
 /// \brief Concept modeling that a type is \c bool or a reference to \c bool.
 ///
@@ -63,14 +79,17 @@ concept cxx_boolean = std::same_as<std::remove_cvref_t<T>, bool>;
 template <class T>
 concept cxx_arithmetic_signed_integral =
     std::signed_integral<std::remove_cvref_t<T>> &&
-    (!std::same_as<std::remove_cvref_t<T>, char8_t>) &&
-    (!std::same_as<std::remove_cvref_t<T>, char16_t>) &&
-    (!std::same_as<std::remove_cvref_t<T>, char32_t>) &&
+    (!std::same_as<std::remove_cvref_t<T>, char>) &&
     (!std::same_as<std::remove_cvref_t<T>, wchar_t>);
 
 template <class T>
 concept cxx_arithmetic_unsigned_integral =
     std::unsigned_integral<std::remove_cvref_t<T>> &&
+    (!std::same_as<std::remove_cvref_t<T>, char>) &&
+    (!std::same_as<std::remove_cvref_t<T>, wchar_t>) &&
+    (!std::same_as<std::remove_cvref_t<T>, char8_t>) &&
+    (!std::same_as<std::remove_cvref_t<T>, char16_t>) &&
+    (!std::same_as<std::remove_cvref_t<T>, char32_t>) &&
     (!std::same_as<std::remove_cvref_t<T>, bool>);
 
 /// \brief Concept modeling that a conversion between two integers is
@@ -160,6 +179,8 @@ class unsigned_integral_type;
 /// \tparam T The underlying floating-point type. May be a reference.
 template <static_string Tag, std::floating_point T> class floating_point_type;
 
+template <static_string Tag, std::floating_point T> class complex_type;
+
 /// --- Cina Concepts and Type Traits ----
 
 /// \cond
@@ -234,6 +255,12 @@ concept unsigned_integral = _detail::_is_unsigned_integral_type<T>;
 
 template <class T>
 concept integral = signed_integral<T> || unsigned_integral<T>;
+
+// --- Cina Type Traits ---
+
+template <class S>
+using remove_reference_t =
+    S::template _rebind<std::remove_reference_t<underlying_type<S>>>;
 
 // --- Skills ---
 
@@ -612,26 +639,7 @@ public:
   constexpr _strong_type_storage(U& value) noexcept
       : _m_do_not_use_directly(&value) {}
 
-  constexpr auto get() noexcept -> std::remove_reference_t<T>& {
-    return *_m_do_not_use_directly;
-  }
-
-  constexpr auto get() const noexcept -> const std::remove_reference_t<T>& {
-    return *_m_do_not_use_directly;
-  }
-};
-
-template <class T> class _strong_type_storage<const T&> {
-public:
-  const T* _m_do_not_use_directly;
-
-  template <class U = T>
-  constexpr _strong_type_storage(const U& value) noexcept
-      : _m_do_not_use_directly(&value) {}
-
-  constexpr auto get() const noexcept -> const std::remove_reference_t<T>& {
-    return *_m_do_not_use_directly;
-  }
+  constexpr auto get() const noexcept -> T& { return *_m_do_not_use_directly; }
 };
 } // namespace _detail
 /// \endcond
@@ -640,6 +648,9 @@ template <static_string Tag, class T>
 class CINA_EBCO strong_type
     : public equality_comparison::skill<strong_type<Tag, T>> {
   using _storage_type = _detail::_strong_type_storage<T>;
+
+  static_assert(!std::is_rvalue_reference_v<T>);
+  static_assert(!std::is_void_v<T>);
 
 public:
   template <class U> using _rebind = strong_type<Tag, U>;
@@ -761,48 +772,17 @@ public:
       : _m_do_not_use_directly(std::in_place, il, std::forward<Args>(args)...) {
   }
 
-  /// \brief Returns a reference to the underlying value.
-  ///
-  /// \pre \c T is not \c const.
-  ///
-  /// \return A reference to the underlying value.
-  [[nodiscard]] constexpr auto unwrap() & noexcept
-      -> std::remove_reference_t<T>& {
-    return _m_do_not_use_directly.get();
-  }
-
-  /// \brief Returns a const reference to the underlying value.
-  ///
-  /// \pre \c T is \c const.
-  ///
-  /// \return A const reference to the underlying value.
-  [[nodiscard]] constexpr auto unwrap() const& noexcept
-      -> std::add_const_t<std::remove_reference_t<T>>& {
-    return _m_do_not_use_directly.get();
-  }
-
-  /// \brief Returns an rvalue reference to the underlying value.
-  ///
-  /// \pre \c T is not an lvalue reference.
-  ///
-  /// \return An rvalue reference to the underlying value.
-  [[nodiscard]] constexpr auto unwrap() && noexcept
-      -> std::remove_reference_t<T>&&
+  template <typename Self>
+  constexpr auto unwrap(this Self&& self) noexcept -> auto&&
     requires(!std::is_lvalue_reference_v<T>)
   {
-    return std::move(_m_do_not_use_directly).get();
+    return std::forward<Self>(self)._m_do_not_use_directly.get();
   }
 
-  /// \brief Returns a const rvalue reference to the underlying value.
-  ///
-  /// \pre \c T is not an lvalue reference.
-  ///
-  /// \return A const rvalue reference to the underlying value.
-  [[nodiscard]] constexpr auto unwrap() const&& noexcept
-      -> std::add_const_t<std::remove_reference_t<T>>&&
-    requires(!std::is_lvalue_reference_v<T>)
+  constexpr auto unwrap() const noexcept -> T
+    requires std::is_lvalue_reference_v<T>
   {
-    return std::move(_m_do_not_use_directly).get();
+    return _m_do_not_use_directly.get();
   }
 
   /// Do not use this value directly, use \c unwrap() instead.
@@ -841,9 +821,13 @@ public:
   /// \post \c this->unwrap() is a reference to \c value.
   ///
   /// \param value The reference to initialize the boolean type with.
-  constexpr boolean_type(const T& value) noexcept
+  constexpr explicit boolean_type(const T& value) noexcept
     requires std::is_reference_v<T>
       : base_type(value) {}
+
+  constexpr explicit boolean_type(const std::remove_reference_t<T>&& value)
+    requires std::is_reference_v<T>
+  = delete;
 
   /// \brief Explicit conversion operator
   ///
@@ -853,8 +837,9 @@ public:
   /// \brief Logical NOT operator.
   ///
   /// \returns \c boolean_type{!this->unwrap()}.
-  constexpr auto operator!() const noexcept -> boolean_type {
-    return boolean_type(!this->unwrap());
+  template <class U = boolean_type> constexpr auto operator!() const noexcept {
+    using return_type = boolean_type<Tag, decltype(!this->unwrap())>;
+    return return_type{!this->unwrap()};
   }
 };
 
@@ -902,6 +887,11 @@ public:
   constexpr explicit signed_integral_type(const T& value) noexcept
     requires std::is_reference_v<T>
       : base_type(value) {}
+
+  constexpr explicit signed_integral_type(
+      const std::remove_reference_t<T>&& value)
+    requires std::is_reference_v<T>
+  = delete;
 };
 
 template <static_string Tag, cxx_arithmetic_unsigned_integral T>
@@ -969,6 +959,26 @@ public:
       : base_type(value) {}
 };
 
+template <static_string Tag, std::floating_point T>
+class complex_type : public strong_type<Tag, std::complex<T>> {
+  constexpr static static_string real_tag = Tag + static_string{"_real"};
+  constexpr static static_string imag_tag = Tag + static_string{"_imag"};
+
+  using base_type = strong_type<Tag, std::complex<T>>;
+
+public:
+  using real_type = floating_point_type<real_tag, T>;
+  using imaginary_type = floating_point_type<imag_tag, T>;
+
+  template <class U> using _rebind = complex_type<Tag, U>;
+
+  constexpr complex_type(const real_type real, const imaginary_type imag =
+                                                   imaginary_type{0.0}) noexcept
+      : base_type(std::in_place, real.unwrap(), imag.unwrap()) {}
+
+  constexpr complex_type(const std::complex<T>& value) : base_type(value) {}
+};
+
 // -- Type Factory ---
 /// \brief Tag type indicating a strong type should not support any skills.
 struct no_skills {};
@@ -1006,6 +1016,19 @@ struct _new_type_impl<Tg, T> {
 template <static_string Tag, std::floating_point T>
 struct _new_type_impl<Tag, T> {
   using type = floating_point_type<Tag, T>;
+};
+
+template <static_string Tag> struct _new_type_impl<Tag, std::complex<float>> {
+  using type = complex_type<Tag, float>;
+};
+
+template <static_string Tag> struct _new_type_impl<Tag, std::complex<double>> {
+  using type = complex_type<Tag, double>;
+};
+
+template <static_string Tag>
+struct _new_type_impl<Tag, std::complex<long double>> {
+  using type = complex_type<Tag, long double>;
 };
 } // namespace _detail
 /// \endcond
