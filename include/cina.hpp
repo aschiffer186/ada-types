@@ -92,6 +92,12 @@ concept cxx_arithmetic_unsigned_integral =
     (!std::same_as<std::remove_cvref_t<T>, char32_t>) &&
     (!std::same_as<std::remove_cvref_t<T>, bool>);
 
+template <class T>
+concept cxx_complex =
+    std::same_as<std::remove_cvref_t<T>, std::complex<float>> ||
+    std::same_as<std::remove_cvref_t<T>, std::complex<double>> ||
+    std::same_as<std::remove_cvref_t<T>, std::complex<long double>>;
+
 /// \brief Concept modeling that a conversion between two integers is
 /// non-narrowing.
 ///
@@ -179,7 +185,7 @@ class unsigned_integral_type;
 /// \tparam T The underlying floating-point type. May be a reference.
 template <static_string Tag, std::floating_point T> class floating_point_type;
 
-template <static_string Tag, std::floating_point T> class complex_type;
+template <static_string Tag, cxx_complex T> class complex_type;
 
 /// --- Cina Concepts and Type Traits ----
 
@@ -959,7 +965,7 @@ public:
       : base_type(value) {}
 };
 
-template <static_string Tag, std::floating_point T>
+template <static_string Tag, cxx_complex T>
 class complex_type : public strong_type<Tag, std::complex<T>> {
   constexpr static static_string real_tag = Tag + static_string{"_real"};
   constexpr static static_string imag_tag = Tag + static_string{"_imag"};
@@ -974,9 +980,14 @@ public:
 
   constexpr complex_type(const real_type real, const imaginary_type imag =
                                                    imaginary_type{0.0}) noexcept
+    requires(!std::is_reference_v<T>)
       : base_type(std::in_place, real.unwrap(), imag.unwrap()) {}
 
-  constexpr complex_type(const std::complex<T>& value) : base_type(value) {}
+  constexpr complex_type(const T& value) : base_type(value) {}
+
+  constexpr complex_type(const std::remove_reference_t<T>&&)
+    requires std::is_reference_v<T>
+  = delete;
 };
 
 // -- Type Factory ---
