@@ -1,6 +1,7 @@
 #include <cina.hpp>
 
 #include <concepts>
+#include <cstdint>
 #include <gtest/gtest.h>
 
 #include <compare>
@@ -99,6 +100,9 @@ TEST(TestSignedIntegerType, TestConstructor) {
 
   signed_integer i1{42};
   EXPECT_EQ(i1.unwrap(), 42);
+
+  EXPECT_FALSE((std::constructible_from<signed_integer, std::int64_t>));
+  EXPECT_FALSE((std::constructible_from<signed_integer, unsigned int>));
 
   using signed_integer2 = new_type<"SignedInteger2", int>;
   EXPECT_FALSE((std::constructible_from<signed_integer, signed_integer2>));
@@ -291,4 +295,33 @@ TEST(TestSignedIntegerType, TestMultiplication) {
   i7 *= i10;
   EXPECT_EQ(i7.unwrap(), 2070);
   EXPECT_EQ(i6, 2070);
+}
+
+TEST(TestSignedIntegerType, TestDivision) {
+  using integer_type = cina::new_type<"Integer", int>;
+
+  integer_type i1{42};
+  integer_type i2{43};
+
+  integer_type i3 = i1 / i2;
+  EXPECT_EQ(i3.unwrap(), 0);
+
+  i3 /= i1;
+  EXPECT_EQ(i3.unwrap(), 0);
+
+  using integer_ref = cina::new_type<"IntegerRef", int&>;
+
+  int i4{44};
+  integer_ref i5{i4};
+  int i6{45};
+  integer_ref i7{i6};
+
+  auto i8 = i5 / i7;
+  EXPECT_EQ(i8.unwrap(), 0);
+
+  int i9{46};
+  integer_ref i10{i9};
+  i7 /= i10;
+  EXPECT_EQ(i7.unwrap(), 0);
+  EXPECT_EQ(i6, 0);
 }

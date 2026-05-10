@@ -5,25 +5,29 @@
 #ifndef CINA_HPP
 #define CINA_HPP
 
+#include <algorithm> // ranges::copy
 #include <compare>
+#include <concepts> // constructible_from, default_initializable, floating_point, integral, same_as
+#include <cstddef> // size_t
+#include <cstdint>
+#include <format>           // formatter
+#include <functional>       // hash
+#include <initializer_list> // initializer_list
+#include <iterator>         // back_inserter
+#include <limits>
+#include <ostream> // ostream
+#include <source_location>
+#include <stdexcept>   // out_of_range
+#include <string>      // string
+#include <string_view> // string_view
+#include <type_traits> // is_nothrow_constructible, is_nothrow_copy_constructible, is_nothrow_move_constructible, remove_cvref_t, remove_reference_t, void_t
+#include <utility>     // declval, forward
+
 #if defined(_MSC_VER) && _MSC_VER >= 1910
 #define CINA_EBCO __declspec(empty_bases)
 #else
 #define CINA_EBCO
 #endif
-
-#include <algorithm> // ranges::copy
-#include <concepts> // constructible_from, default_initializable, floating_point, integral, same_as
-#include <cstddef>          // size_t
-#include <format>           // formatter
-#include <functional>       // hash
-#include <initializer_list> // initializer_list
-#include <iterator>         // back_inserter
-#include <ostream>          // ostream
-#include <string>           // string
-#include <string_view>      // string_view
-#include <type_traits> // is_nothrow_constructible, is_nothrow_copy_constructible, is_nothrow_move_constructible, remove_cvref_t, remove_reference_t, void_t
-#include <utility>     // declval, forward
 
 /// \namespace cina Main namespace of Cina library.
 namespace cina {
@@ -183,9 +187,23 @@ class unsigned_integral_type;
 ///
 /// \tparam Tag The tag of the floating-point type.
 /// \tparam T The underlying floating-point type. May be a reference.
-template <static_string Tag, std::floating_point T> class floating_point_type;
+template <static_string Tag, class T>
+  requires std::floating_point<std::remove_cvref_t<T>>
+class floating_point_type;
 
+// \brief Strongly-typed complex number.
+///
+/// Class template \c complex_type is a strongly-typed wrapper around a complex
+/// number. The underlying type must be a specialization of \c std::complex or
+/// reference ot a specialization of \c std::complex.
+///
+/// \tparam Tag The tag of the complex type.
+/// \tparam T The underlying complex type. May be a reference.
 template <static_string Tag, cxx_complex T> class complex_type;
+
+template <static_string Tag, class T>
+  requires std::is_pointer_v<std::remove_cvref_t<T>>
+class pointer_type;
 
 /// --- Cina Concepts and Type Traits ----
 
@@ -267,6 +285,28 @@ concept integral = signed_integral<T> || unsigned_integral<T>;
 template <class S>
 using remove_reference_t =
     S::template _rebind<std::remove_reference_t<underlying_type<S>>>;
+
+// --- Exceptions ---
+
+class out_of_range : public std::out_of_range {
+public:
+  explicit out_of_range(
+      const std::string& what_arg,
+      const std::source_location& location = std::source_location::current())
+      : std::out_of_range(what_arg), _m_location(location),
+        _m_message(std::format(
+            "Exception thrown in file {}, at line {} in function {}: {}",
+            _m_location.file_name(), _m_location.line(),
+            _m_location.function_name(), what_arg)) {}
+
+  auto what() const noexcept -> const char* override {
+    return _m_message.c_str();
+  }
+
+private:
+  std::source_location _m_location;
+  std::string _m_message;
+};
 
 // --- Skills ---
 
@@ -592,6 +632,15 @@ struct bitwise_shift {
   };
 };
 
+struct dereference {
+  template <class Derived> struct skill {
+    template <class U = Derived>
+    friend constexpr auto operator*(U&& value) -> decltype(auto) {
+      return *std::forward<U>(value).unwrap();
+    }
+  };
+};
+
 // --- Strong Type Definition ---
 
 /// \cond
@@ -824,14 +873,14 @@ public:
   /// Constructs a \c boolean_type instance with a given reference.
   ///
   /// \pre \c T is a reference type.
-  /// \post \c this->unwrap() is a reference to \c value.
+  /// \post \c this->unwrap() is a reference to \c ref.
   ///
-  /// \param value The reference to initialize the boolean type with.
-  constexpr explicit boolean_type(const T& value) noexcept
+  /// \param ref The reference to initialize the boolean type with.
+  constexpr explicit boolean_type(const T& ref) noexcept
     requires std::is_reference_v<T>
-      : base_type(value) {}
+      : base_type(ref) {}
 
-  constexpr explicit boolean_type(const std::remove_reference_t<T>&& value)
+  constexpr explicit boolean_type(const std::remove_reference_t<T>&&)
     requires std::is_reference_v<T>
   = delete;
 
@@ -889,13 +938,133 @@ public:
   /// \pre \c T is a reference type.
   /// \post \c this->unwrap() is a reference to \c value.
   ///
-  /// \param value The reference to initialize the signed integral type with.
-  constexpr explicit signed_integral_type(const T& value) noexcept
+  /// \param ref The reference to initialize the signed integral type with.
+  constexpr explicit signed_integral_type(const T& ref) noexcept
     requires std::is_reference_v<T>
-      : base_type(value) {}
+      : base_type(ref) {}
 
-  constexpr explicit signed_integral_type(
-      const std::remove_reference_t<T>&& value)
+  constexpr explicit signed_integral_type(const std::remove_reference_t<T>&&)
+    requires std::is_reference_v<T>
+  = delete;
+};
+
+// --- Bounded Integral Support ---
+
+template <static_string Tag, cxx_arithmetic_signed_integral T,
+          std::intmax_t Min, std::intmax_t Max>
+class CINA_EBCO bounded_signed_integral_type
+    : public strong_type<Tag, T>,
+      public three_way_comparison::skill<
+          bounded_signed_integral_type<Tag, T, Min, Max>>,
+      public output_stream::skill<
+          bounded_signed_integral_type<Tag, T, Min, Max>> {
+  using base_type = strong_type<Tag, T>;
+
+  static_assert(Min <= Max,
+                "Minimum value must be less than or equal to maximum value.");
+  static_assert(Min >= std::numeric_limits<T>::min(),
+                "Minimum value must be greater than or equal to minimum value "
+                "of underlying type.");
+  static_assert(Max <= std::numeric_limits<T>::max(),
+                "Maximum value must be less than or equal to maximum value of "
+                "underlying type.");
+
+public:
+  template <class U>
+  using _rebind = bounded_signed_integral_type<Tag, U, Min, Max>;
+
+  template <class U>
+    requires(!std::is_reference_v<T> &&
+             cxx_non_narrowing_integral_conversion<U, T>)
+  constexpr explicit bounded_signed_integral_type(const U value) noexcept
+      : base_type(static_cast<T>(value)) {
+    constexpr T input_min = static_cast<T>(std::numeric_limits<U>::min());
+    constexpr T input_max = static_cast<T>(std::numeric_limits<U>::max());
+
+    static_assert(Max >= input_min, "Maximum value must be greater than or "
+                                    "equal to minimum value of input type.");
+    static_assert(Min <= input_max, "Minimum value must be less than or equal "
+                                    "to maximum value of input type.");
+
+    if constexpr (input_min < Min && Min > std::numeric_limits<T>::min()) {
+      if (static_cast<T>(value) < Min) {
+        if consteval {
+          throw out_of_range("Input out of range");
+        } else {
+          throw out_of_range(std::format(
+              "Value {} is less than minimum value {}.", value, Min));
+        }
+      }
+    }
+
+    if constexpr (input_max > Max && Max < std::numeric_limits<T>::max()) {
+      if (static_cast<T>(value) > Max) {
+        if consteval {
+          throw out_of_range("Input out of range");
+        } else {
+          throw out_of_range(std::format(
+              "Value {} is greater than maximum value {}.", value, Max));
+        }
+      }
+    }
+  }
+
+  template <std::intmax_t Min2, std::intmax_t Max2>
+  constexpr explicit bounded_signed_integral_type(
+      const bounded_signed_integral_type<Tag, T, Min2, Max2>& other) noexcept
+      : base_type(other.unwrap()) {
+    if constexpr (Min > Min2) {
+      if (other.unwrap() < Min) {
+        if consteval {
+          throw out_of_range("Input out of range");
+        } else {
+          throw out_of_range(std::format(
+              "Value {} is less than minimum value {}.", other.unwrap(), Min));
+        }
+      }
+    }
+
+    if constexpr (Max < Max2) {
+      if (other.unwrap() > Max) {
+        if consteval {
+          throw out_of_range("Input out of range");
+        } else {
+          throw out_of_range(
+              std::format("Value {} is greater than maximum value {}.",
+                          other.unwrap(), Max));
+        }
+      }
+    }
+  }
+
+  constexpr explicit bounded_signed_integral_type(const T& ref) noexcept
+    requires std::is_reference_v<T>
+      : base_type(ref) {
+    if constexpr (Min > std::numeric_limits<T>::min()) {
+      if (ref < Min) {
+        if consteval {
+          throw out_of_range("Input out of range");
+        } else {
+          throw out_of_range(
+              std::format("Value {} is less than minimum value {}.", ref, Min));
+        }
+      }
+    }
+
+    if constexpr (Max < std::numeric_limits<T>::max()) {
+      if (ref > Max) {
+        if consteval {
+          throw out_of_range("Input out of range");
+        } else {
+          throw out_of_range(std::format(
+              "Value {} is greater than maximum value {}.", ref, Max));
+        }
+      }
+    }
+  }
+
+  constexpr explicit bounded_signed_integral_type(
+      const std::remove_reference_t<T>&&)
     requires std::is_reference_v<T>
   = delete;
 };
@@ -929,14 +1098,15 @@ public:
   constexpr explicit unsigned_integral_type(const U value) noexcept
       : base_type(static_cast<T>(value)) {}
 
-  constexpr explicit unsigned_integral_type(const T& value) noexcept
+  constexpr explicit unsigned_integral_type(const T& ref) noexcept
     requires std::is_reference_v<T>
-      : base_type(value) {}
+      : base_type(ref) {}
 };
 
 // --- Floating-Point Type Definition ---
 
-template <static_string Tag, std::floating_point T>
+template <static_string Tag, class T>
+  requires std::floating_point<std::remove_cvref_t<T>>
 class CINA_EBCO floating_point_type
     : public strong_type<Tag, T>,
       public three_way_comparison::skill<floating_point_type<Tag, T>>,
@@ -960,10 +1130,16 @@ public:
   constexpr explicit floating_point_type(const U value) noexcept
       : base_type(static_cast<T>(value)) {}
 
-  constexpr explicit floating_point_type(const T& value) noexcept
+  constexpr explicit floating_point_type(const T& ref) noexcept
     requires std::is_reference_v<T>
-      : base_type(value) {}
+      : base_type(ref) {}
+
+  constexpr explicit floating_point_type(const std::remove_reference_t<T>&&)
+    requires std::is_reference_v<T>
+  = delete;
 };
+
+// --- Complex Type Definition ---
 
 template <static_string Tag, cxx_complex T>
 class complex_type : public strong_type<Tag, std::complex<T>> {
@@ -990,9 +1166,38 @@ public:
   = delete;
 };
 
+// -- Pointer Type Definition ---
+
+template <static_string Tag, class T>
+  requires std::is_pointer_v<std::remove_cvref_t<T>>
+class pointer_type : public strong_type<Tag, T>,
+                     public three_way_comparison::skill<pointer_type<Tag, T>>,
+                     public output_stream::skill<pointer_type<Tag, T>>,
+                     public input_stream::skill<pointer_type<Tag, T>>,
+                     public dereference::skill<pointer_type<Tag, T>> {
+  using base_type = strong_type<Tag, T>;
+
+public:
+  template <class U> using _rebind = pointer_type<Tag, U>;
+
+  template <class U>
+    requires(!std::is_reference_v<T> && std::convertible_to<U*, T>)
+  constexpr explicit pointer_type(U* ptr) noexcept : base_type(ptr) {}
+
+  constexpr explicit pointer_type(const T& ref) noexcept
+    requires std::is_reference_v<T>
+      : base_type(ref) {}
+
+  constexpr explicit pointer_type(const std::remove_reference_t<T>&&)
+    requires std::is_reference_v<T>
+  = delete;
+};
+
 // -- Type Factory ---
 /// \brief Tag type indicating a strong type should not support any skills.
 struct no_skills {};
+
+template <std::intmax_t Min, std::intmax_t Max> struct range {};
 
 ///\cond
 namespace _detail {
@@ -1024,28 +1229,131 @@ struct _new_type_impl<Tg, T> {
   using type = unsigned_integral_type<Tg, T>;
 };
 
-template <static_string Tag, std::floating_point T>
+template <static_string Tag, class T>
+  requires std::floating_point<std::remove_cvref_t<T>>
 struct _new_type_impl<Tag, T> {
   using type = floating_point_type<Tag, T>;
 };
 
-template <static_string Tag> struct _new_type_impl<Tag, std::complex<float>> {
-  using type = complex_type<Tag, float>;
-};
-
-template <static_string Tag> struct _new_type_impl<Tag, std::complex<double>> {
-  using type = complex_type<Tag, double>;
-};
-
-template <static_string Tag>
-struct _new_type_impl<Tag, std::complex<long double>> {
-  using type = complex_type<Tag, long double>;
+template <static_string Tag, cxx_complex T> struct _new_type_impl<Tag, T> {
+  using type = complex_type<Tag, T>;
 };
 } // namespace _detail
+
+template <static_string Tag, cxx_arithmetic_signed_integral T,
+          std::intmax_t Min, std::intmax_t Max>
+struct _detail::_new_type_impl<Tag, T, range<Min, Max>> {
+  using type = bounded_signed_integral_type<Tag, T, Min, Max>;
+};
+
+template <std::intmax_t, std::intmax_t> struct _selected_integer_type;
+
+template <std::intmax_t Min, std::intmax_t Max>
+  requires(Min >= std::numeric_limits<signed char>::min() &&
+           Max <= std::numeric_limits<signed char>::max())
+struct _selected_integer_type<Min, Max> {
+  using type = signed char;
+};
+
+template <std::intmax_t Min, std::intmax_t Max>
+  requires(Min >= std::numeric_limits<short>::min() &&
+           Max <= std::numeric_limits<short>::max())
+struct _selected_integer_type<Min, Max> {
+  using type = short;
+};
+
+template <std::intmax_t Min, std::intmax_t Max>
+  requires(Min >= std::numeric_limits<int>::min() &&
+           Max <= std::numeric_limits<int>::max())
+struct _selected_integer_type<Min, Max> {
+  using type = int;
+};
+
+template <std::intmax_t Min, std::intmax_t Max>
+  requires(Min >= std::numeric_limits<long>::min() &&
+           Max <= std::numeric_limits<long>::max())
+struct _selected_integer_type<Min, Max> {
+  using type = long;
+};
+
+template <std::intmax_t Min, std::intmax_t Max>
+  requires(Min >= std::numeric_limits<long long>::min() &&
+           Max <= std::numeric_limits<long long>::max())
+struct _selected_integer_type<Min, Max> {
+  using type = long long;
+};
+
+template <static_string Tag, std::intmax_t Min, std::intmax_t Max>
+struct _detail::_new_type_impl<Tag, void, range<Min, Max>> {
+  using underlying_type = _selected_integer_type<Min, Max>::type;
+  using type = bounded_signed_integral_type<Tag, underlying_type, Min, Max>;
+};
+
 /// \endcond
 
 template <static_string Tag, class T, class... Args>
 using new_type = _detail::_new_type_impl<Tag, T, Args...>::type;
+
+/// \cond
+namespace _detail {
+template <strong_type_like T, class... Args> struct _subtype_impl {
+  using type = T;
+};
+
+template <static_string Tag, class T, std::intmax_t Min1, std::intmax_t Max1,
+          std::intmax_t Min2, std::intmax_t Max2>
+struct _subtype_impl<bounded_signed_integral_type<Tag, T, Min1, Max1>,
+                     range<Min2, Max2>> {
+  using type = bounded_signed_integral_type<Tag, T, Min2, Max2>;
+};
+} // namespace _detail
+
+template <class T, class... Args>
+using subtype = typename _detail::_subtype_impl<T, Args...>::type;
+/// \endcond
+
+/// --- Pre-defined Bounded Integer Types ---
+using bounded_int8_t = new_type<"__bounded_int8_t", std::int8_t,
+                                range<std::numeric_limits<std::int8_t>::min(),
+                                      std::numeric_limits<std::int8_t>::max()>>;
+using bounded_int16_t =
+    new_type<"__bounded_int16_t", std::int16_t,
+             range<std::numeric_limits<std::int16_t>::min(),
+                   std::numeric_limits<std::int16_t>::max()>>;
+using bounded_int32_t =
+    new_type<"__bounded_int32_t", std::int32_t,
+             range<std::numeric_limits<std::int32_t>::min(),
+                   std::numeric_limits<std::int32_t>::max()>>;
+using bounded_int64_t =
+    new_type<"__bounded_int64_t", std::int64_t,
+             range<std::numeric_limits<std::int64_t>::min(),
+                   std::numeric_limits<std::int64_t>::max()>>;
+using bounded_intmax_t =
+    new_type<"__bounded_intmax_t", std::intmax_t,
+             range<std::numeric_limits<std::intmax_t>::min(),
+                   std::numeric_limits<std::intmax_t>::max()>>;
+
+using nat8_t =
+    subtype<bounded_int8_t, range<0, std::numeric_limits<std::int8_t>::max()>>;
+using nat16_t = subtype<bounded_int16_t,
+                        range<0, std::numeric_limits<std::int16_t>::max()>>;
+using nat32_t = subtype<bounded_int32_t,
+                        range<0, std::numeric_limits<std::int32_t>::max()>>;
+using nat64_t = subtype<bounded_int64_t,
+                        range<0, std::numeric_limits<std::int64_t>::max()>>;
+using natmax_t = subtype<bounded_intmax_t,
+                         range<0, std::numeric_limits<std::intmax_t>::max()>>;
+
+using pos8_t =
+    subtype<bounded_int8_t, range<1, std::numeric_limits<std::int8_t>::max()>>;
+using pos16_t = subtype<bounded_int16_t,
+                        range<1, std::numeric_limits<std::int16_t>::max()>>;
+using pos32_t = subtype<bounded_int32_t,
+                        range<1, std::numeric_limits<std::int32_t>::max()>>;
+using pos64_t = subtype<bounded_int64_t,
+                        range<1, std::numeric_limits<std::int64_t>::max()>>;
+using posmax_t = subtype<bounded_intmax_t,
+                         range<1, std::numeric_limits<std::intmax_t>::max()>>;
 
 } // namespace cina
 
