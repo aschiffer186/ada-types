@@ -42,6 +42,7 @@ TEST(TestBooleanType, TestCXXProperties) {
   EXPECT_EQ(alignof(type), alignof(bool));
   EXPECT_FALSE((std::convertible_to<type, int>));
   EXPECT_FALSE((std::convertible_to<type, bool>));
+  EXPECT_TRUE(std::swappable<type>);
 
   using reference = cina::new_type<struct Tag2, bool&>;
   EXPECT_FALSE(std::is_default_constructible_v<reference>);
@@ -50,6 +51,7 @@ TEST(TestBooleanType, TestCXXProperties) {
   EXPECT_TRUE(std::is_copy_assignable_v<reference>);
   EXPECT_TRUE(std::is_move_assignable_v<reference>);
   EXPECT_TRUE(std::equality_comparable<reference>);
+  EXPECT_TRUE(std::swappable<reference>);
 }
 
 TEST(TestBooleanType, TestConstructor) {
