@@ -153,22 +153,12 @@ TEST(TestBooleanType, TestInputStream) {
 
 TEST(TestBooleanType, TestAssignment) {
   using type = cina::new_type<struct Tag, bool>;
-  type b{true};
-  b = false;
-  EXPECT_FALSE(b.unwrap());
-
   using type2 = cina::new_type<struct Tag2, bool>;
   EXPECT_FALSE((std::is_assignable_v<type&, type2>));
 
   using reference = cina::new_type<struct Tag3, bool&>;
-  bool b2{false};
-  reference ref{b2};
-  bool b3{true};
-  reference ref2{b3};
-  ref = ref2;
-  EXPECT_TRUE(b2);
-  ref = false;
-  EXPECT_FALSE(b2);
+  using reference2 = cina::new_type<struct Tag4, bool&>;
+  EXPECT_FALSE((std::is_assignable_v<reference&, reference2>));
 }
 
 TEST(TestBooleanType, TestConversion) {

@@ -286,24 +286,6 @@ class CINA_EBCO boolean_type
 
   using base_type = strong_type<Tag, UnderlyingType>;
 
-  class bool_literal {
-    template <int> constexpr static bool dependent_false = false;
-
-  public:
-    consteval bool_literal(const bool&& value) : _m_value(value) {}
-
-    template <int i = 0> constexpr bool_literal(const bool&) {
-      static_assert(
-          dependent_false<i>,
-          "Only bool literals can be assigned to a cina::boolean_type");
-    }
-
-    constexpr operator bool() const noexcept { return _m_value; }
-
-  private:
-    bool _m_value;
-  };
-
 public:
   constexpr explicit boolean_type(const uninitialized_t)
       : base_type(uninitialized) {}
@@ -318,20 +300,6 @@ public:
              constexpr explicit boolean_type(U&& value)
                requires std::is_reference_v<UnderlyingType>
       : base_type(std::forward<U>(value)) {}
-
-  constexpr auto operator=(const bool_literal value) -> boolean_type&
-    requires(!std::is_reference_v<UnderlyingType>)
-  {
-    this->unwrap() = value;
-    return *this;
-  }
-
-  constexpr auto operator=(const bool_literal value) -> boolean_type&
-    requires std::is_reference_v<UnderlyingType>
-  {
-    *this->_m_do_not_use_this = value;
-    return *this;
-  }
 
   constexpr explicit operator bool() const noexcept { return this->unwrap(); }
 };
