@@ -184,4 +184,50 @@ TEST(TestStrongType, TestUnwrap) {
   EXPECT_TRUE((std::is_same_v<decltype(std::move(a).unwrap()), int_wrapper&&>));
   EXPECT_TRUE((std::is_same_v<decltype(std::move(std::as_const(a)).unwrap()),
                               const int_wrapper&&>));
+
+  using reference = cina::strong_type<struct Tag2, int_wrapper&>;
+  int_wrapper value{42};
+  reference ref{value};
+  EXPECT_TRUE((std::is_same_v<decltype(ref.unwrap()), int_wrapper&>));
+  EXPECT_TRUE(
+      (std::is_same_v<decltype(std::as_const(ref).unwrap()), int_wrapper&>));
+  EXPECT_TRUE(
+      (std::is_same_v<decltype(std::move(ref).unwrap()), int_wrapper&>));
+  EXPECT_TRUE((std::is_same_v<decltype(std::move(std::as_const(ref)).unwrap()),
+                              int_wrapper&>));
+}
+
+TEST(TestStrongType, TestSwap) {
+  using type = cina::strong_type<struct Tag, int_wrapper>;
+  type a{42};
+  type b{84};
+  a.swap(b);
+  EXPECT_EQ(a.unwrap(), 84);
+  EXPECT_EQ(b.unwrap(), 42);
+  EXPECT_TRUE(noexcept(a.swap(b)));
+
+  swap(a, b);
+  EXPECT_EQ(a.unwrap(), 42);
+  EXPECT_EQ(b.unwrap(), 84);
+  EXPECT_TRUE(noexcept(swap(a, b)));
+
+  using reference = cina::strong_type<struct Tag2, int_wrapper&>;
+  int_wrapper value1{42};
+  int_wrapper value2{84};
+  reference ref1{value1};
+  reference ref2{value2};
+  ref1.swap(ref2);
+  EXPECT_EQ(value1, 84);
+  EXPECT_EQ(value2, 42);
+  EXPECT_TRUE(noexcept(ref1.swap(ref2)));
+
+  swap(a, b);
+  EXPECT_EQ(a.unwrap(), 84);
+  EXPECT_EQ(b.unwrap(), 42);
+  EXPECT_TRUE(noexcept(swap(ref1, ref2)));
+}
+
+TEST(TestStrongType, TestTypeFactory) {
+  using type2 = cina::new_type<struct Tag2, bool, cina::no_skills>;
+  EXPECT_TRUE((std::same_as<type2, cina::strong_type<struct Tag2, bool>>));
 }
