@@ -1,4 +1,4 @@
-#include "cina.hpp"
+#include <cina.hpp>
 
 #include <gtest/gtest.h>
 
@@ -87,14 +87,20 @@ TEST(StrongTypeBase, TestConstructor) {
   using type = cina::strong_type<struct Tag, int_wrapper>;
   const type a{};
   EXPECT_EQ(a.unwrap(), 0);
+  constexpr type ca{};
+  static_assert(ca.unwrap() == 0);
   const type b{42};
   EXPECT_EQ(b.unwrap(), 42);
+  constexpr type cb{42};
+  static_assert(cb.unwrap() == 42);
   const type c{std::in_place, 42, 42};
   EXPECT_EQ(c.unwrap(), 84);
+  constexpr type cc{std::in_place, 42, 42};
+  static_assert(cc.unwrap() == 84);
   const type d{std::in_place, {1, 2, 3}, 42};
   EXPECT_EQ(d.unwrap(), 48);
-  constexpr type e{42};
-  static_assert(e.unwrap() == 42);
+  constexpr type cd{std::in_place, {1, 2, 3}, 42};
+  static_assert(cd.unwrap() == 48);
 
   using reference = cina::strong_type<struct Tag2, int_wrapper&>;
   int_wrapper value{42};
@@ -122,7 +128,7 @@ TEST(StrongTypeBase, TestConstructor) {
   const type3 f{a};
   EXPECT_EQ(f.unwrap(), double_wrapper{0.0});
   EXPECT_FALSE((std::is_constructible_v<type, type3>));
-  constexpr type3 g{e};
+  constexpr type3 g{cb};
   static_assert(g.unwrap() == double_wrapper{42.0});
 }
 
@@ -146,6 +152,8 @@ TEST(TestStrongType, TestAssignment) {
   reference ref2{value2};
   ref = ref2;
   EXPECT_EQ(value, 84);
+  ref = cina::remove_reference_t<reference>{int_wrapper{42}};
+  EXPECT_EQ(value, 42);
 }
 
 TEST(TestStrongType, TestComparison) {
@@ -230,4 +238,8 @@ TEST(TestStrongType, TestSwap) {
 TEST(TestStrongType, TestTypeFactory) {
   using type2 = cina::new_type<struct Tag2, bool, cina::no_skills>;
   EXPECT_TRUE((std::same_as<type2, cina::strong_type<struct Tag2, bool>>));
+
+  using type3 = cina::new_type<struct Tag3, bool, cina::output_stream>;
+  EXPECT_TRUE((!std::same_as<type3, cina::boolean_type<struct Tag3, bool>>));
+  EXPECT_TRUE((std::derived_from<type3, cina::output_stream::skill<type3>>));
 }
