@@ -113,6 +113,10 @@ TEST(TestBooleanType, TestComparison) {
   const type b{false};
   EXPECT_EQ(a, a);
   EXPECT_NE(a, b);
+  constexpr type ca{true};
+  constexpr type cb{false};
+  static_assert(ca == ca);
+  static_assert(ca != cb);
 
   using reference = cina::new_type<struct Tag2, bool&>;
   bool value{true};
@@ -193,10 +197,18 @@ TEST(TestBooleanType, TestInputStream) {
   EXPECT_TRUE(mb.unwrap());
 }
 
+consteval auto test_constexpr_assignment() -> bool {
+  using type = cina::new_type<struct Tag, bool>;
+  type a{false};
+  a = type{true};
+  return a.unwrap();
+}
+
 TEST(TestBooleanType, TestAssignment) {
   using type = cina::new_type<struct Tag, bool>;
   using type2 = cina::new_type<struct Tag2, bool>;
   EXPECT_FALSE((std::is_assignable_v<type&, type2>));
+  static_assert(test_constexpr_assignment());
 
   using reference = cina::new_type<struct Tag3, bool&>;
   using reference2 = cina::new_type<struct Tag4, bool&>;
@@ -219,6 +231,20 @@ TEST(TestBooleanType, TestAssignment) {
   EXPECT_TRUE(mb.unwrap());
 }
 
+consteval auto test_constexpr_swap() -> bool {
+  using type = cina::new_type<struct Tag, bool>;
+  type b1{true};
+  type b2{false};
+
+  b2.swap(b1);
+  type b3 = b2;
+
+  swap(b1, b2);
+  type b4 = b1;
+
+  return b3.unwrap() && b4.unwrap();
+}
+
 TEST(TestBooleanType, TestSwap) {
   using type = cina::new_type<struct Tag, bool>;
   type a{true};
@@ -231,6 +257,7 @@ TEST(TestBooleanType, TestSwap) {
   EXPECT_TRUE(a.unwrap());
   EXPECT_FALSE(b.unwrap());
   EXPECT_TRUE(noexcept(swap(a, b)));
+  static_assert(test_constexpr_swap());
 
   using reference = cina::new_type<struct Tag2, bool&>;
   bool value{true};
@@ -268,6 +295,9 @@ TEST(TestBooleanType, TestConversion) {
   type a{true};
   const DontCare c = a ? DontCare::cTRUE : DontCare::cFALSE;
   EXPECT_EQ(c, DontCare::cTRUE);
+  constexpr type ca{false};
+  constexpr DontCare cc = ca ? DontCare::cTRUE : DontCare::cFALSE;
+  static_assert(cc == DontCare::cFALSE);
 
   using reference = cina::new_type<struct Tag2, bool&>;
   bool value{true};

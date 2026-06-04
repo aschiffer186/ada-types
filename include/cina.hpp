@@ -138,6 +138,31 @@ template <typename T>
 using underlying_type_t =
     decltype(_detail::_as_underlying_type(std::declval<T>()));
 
+/// \cond
+namespace _detail {
+template <typename Tag, cxx_mathematical_signed_integer UnderlyingType>
+constexpr auto _as_signed_integer_type(signed_integer_type<Tag, UnderlyingType>)
+    -> signed_integer_type<Tag, UnderlyingType>;
+
+template <typename T, typename Enable = void>
+constexpr inline bool _is_signed_integer = false;
+
+template <typename T>
+constexpr inline bool _is_signed_integer<
+    T, std::void_t<decltype(_as_signed_integer_type(std::declval<T>()))>> =
+    true;
+} // namespace _detail
+/// \endcond
+
+template <typename T>
+concept signed_integer = _detail::_is_signed_integer<T>;
+
+template <typename T>
+concept integer = signed_integer<T>;
+
+template <typename T>
+concept arithmetic = integer<T>;
+
 namespace _detail {
 template <strong_type_like T> struct remove_reference {
   using type = typename T::template rebind<
@@ -169,13 +194,25 @@ struct three_way_comparison {
   };
 };
 
+/// \cond
+namespace _detail {
+template <typename T>
+constexpr inline bool _need_signed_cast =
+    signed_integer<T> && std::is_same_v<underlying_type_t<T>, signed char>;
+}
+/// \endcond
+
 struct output_stream {
   template <typename Derived> struct skill {
     template <typename CharT, typename Traits>
     friend auto operator<<(std::basic_ostream<CharT, Traits>& os,
                            const Derived& value)
         -> std::basic_ostream<CharT, Traits>& {
-      return os << value.unwrap();
+      if constexpr (_detail::_need_signed_cast<Derived>) {
+        return os << static_cast<signed int>(value.unwrap());
+      } else {
+        return os << value.unwrap();
+      }
     }
   };
 };
@@ -193,50 +230,120 @@ struct input_stream {
 
 struct addition {
   template <typename Derived> struct skill {
-    friend auto operator+(const Derived& lhs, const Derived& rhs) {
+    friend constexpr auto operator+(const Derived& lhs, const Derived& rhs) {
       using return_underlying_type = decltype(lhs.unwrap() + rhs.unwrap());
       return typename Derived::template rebind<return_underlying_type>{
           lhs.unwrap() + rhs.unwrap()};
     }
+
+    friend constexpr auto operator+=(Derived& lhs, const Derived& rhs)
+        -> Derived& {
+      lhs.unwrap() += rhs.unwrap();
+      return lhs;
+    }
   };
 };
 
-struct subtration {
+struct subtraction {
   template <typename Derived> struct skill {
-    friend auto operator-(const Derived& lhs, const Derived& rhs) {
+    friend constexpr auto operator-(const Derived& lhs, const Derived& rhs) {
       using return_underlying_type = decltype(lhs.unwrap() - rhs.unwrap());
       return typename Derived::template rebind<return_underlying_type>{
           lhs.unwrap() - rhs.unwrap()};
+    }
+
+    friend constexpr auto operator-=(Derived& lhs, const Derived& rhs)
+        -> Derived& {
+      lhs.unwrap() -= rhs.unwrap();
+      return lhs;
     }
   };
 };
 
 struct multiplication {
   template <typename Derived> struct skill {
-    friend auto operator*(const Derived& lhs, const Derived& rhs) {
+    friend constexpr auto operator*(const Derived& lhs, const Derived& rhs) {
       using return_underlying_type = decltype(lhs.unwrap() * rhs.unwrap());
       return typename Derived::template rebind<return_underlying_type>{
           lhs.unwrap() * rhs.unwrap()};
+    }
+
+    friend constexpr auto operator*=(Derived& lhs, const Derived& rhs)
+        -> Derived& {
+      lhs.unwrap() *= rhs.unwrap();
+      return lhs;
     }
   };
 };
 
 struct division {
   template <typename Derived> struct skill {
-    friend auto operator/(const Derived& lhs, const Derived& rhs) {
+    friend constexpr auto operator/(const Derived& lhs, const Derived& rhs) {
       using return_underlying_type = decltype(lhs.unwrap() / rhs.unwrap());
       return typename Derived::template rebind<return_underlying_type>{
           lhs.unwrap() / rhs.unwrap()};
+    }
+
+    friend constexpr auto operator/=(Derived& lhs, const Derived& rhs)
+        -> Derived& {
+      lhs.unwrap() /= rhs.unwrap();
+      return lhs;
     }
   };
 };
 
 struct modulo {
   template <typename Derived> struct skill {
-    friend auto operator%(const Derived& lhs, const Derived& rhs) {
+    friend constexpr auto operator%(const Derived& lhs, const Derived& rhs) {
       using return_underlying_type = decltype(lhs.unwrap() % rhs.unwrap());
       return typename Derived::template rebind<return_underlying_type>{
           lhs.unwrap() % rhs.unwrap()};
+    }
+
+    friend constexpr auto operator%=(Derived& lhs, const Derived& rhs)
+        -> Derived& {
+      lhs.unwrap() %= rhs.unwrap();
+      return lhs;
+    }
+  };
+};
+
+struct negation {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator-(const Derived& value) {
+      using return_underlying_type = decltype(-value.unwrap());
+      return typename Derived::template rebind<return_underlying_type>{
+          -value.unwrap()};
+    }
+  };
+};
+
+struct increment {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator++(Derived& value) -> Derived& {
+      ++value.unwrap();
+      return value;
+    }
+
+    friend constexpr auto operator++(Derived& value, int) -> Derived {
+      Derived temp = value;
+      ++value.unwrap();
+      return temp;
+    }
+  };
+};
+
+struct decrement {
+  template <typename Derived> struct skill {
+    friend constexpr auto operator--(Derived& value) -> Derived& {
+      --value.unwrap();
+      return value;
+    }
+
+    friend constexpr auto operator--(Derived& value, int) -> Derived {
+      Derived temp = value;
+      --value.unwrap();
+      return temp;
     }
   };
 };
@@ -250,7 +357,8 @@ struct modulo {
 struct uninitialized_t {
   constexpr explicit uninitialized_t() = default;
 };
-/// \brief Tag value indicating a strong type should be constructed unitialized.
+/// \brief Tag value indicating a strong type should be constructed
+/// unitialized.
 constexpr inline uninitialized_t uninitialized{};
 
 //////////////////////////////////////
@@ -266,8 +374,8 @@ class CINA_EBCO strong_type
                 "Underlying type must not be void");
 
 public:
-  /// \brief Alias template to rebind the strong type to a different underlying
-  /// type with the same tag.
+  /// \brief Alias template to rebind the strong type to a different
+  /// underlying type with the same tag.
   template <typename U> using rebind = strong_type<Tag, U>;
 
   constexpr strong_type()
@@ -349,7 +457,7 @@ public:
   UnderlyingType _m_do_not_use_this;
 
 private:
-  friend auto swap(strong_type& lhs, strong_type& rhs) noexcept(
+  friend auto constexpr swap(strong_type& lhs, strong_type& rhs) noexcept(
       std::is_nothrow_swappable_v<UnderlyingType>) -> void
     requires std::is_swappable_v<UnderlyingType>
   {
@@ -501,10 +609,13 @@ class CINA_EBCO signed_integer_type
       public output_stream::skill<signed_integer_type<Tag, UnderlyingType>>,
       public input_stream::skill<signed_integer_type<Tag, UnderlyingType>>,
       public addition::skill<signed_integer_type<Tag, UnderlyingType>>,
-      public subtration::skill<signed_integer_type<Tag, UnderlyingType>>,
+      public subtraction::skill<signed_integer_type<Tag, UnderlyingType>>,
       public multiplication::skill<signed_integer_type<Tag, UnderlyingType>>,
       public division::skill<signed_integer_type<Tag, UnderlyingType>>,
-      public modulo::skill<signed_integer_type<Tag, UnderlyingType>> {
+      public modulo::skill<signed_integer_type<Tag, UnderlyingType>>,
+      public negation::skill<signed_integer_type<Tag, UnderlyingType>>,
+      public increment::skill<signed_integer_type<Tag, UnderlyingType>>,
+      public decrement::skill<signed_integer_type<Tag, UnderlyingType>> {
   using base_type = strong_type<Tag, UnderlyingType>;
 
 public:
@@ -537,12 +648,13 @@ public:
   }
 
   template <typename U>
-    requires cxx_non_narrowing_integer_conversion<U, UnderlyingType>
+    requires cxx_non_narrowing_integer_conversion<
+        std::remove_reference_t<U>, std::remove_reference_t<UnderlyingType>>
   constexpr auto operator=(const signed_integer_type<Tag, U> other)
       -> signed_integer_type&
     requires std::is_reference_v<UnderlyingType>
   {
-    *this->_m_do_not_use_this = static_cast<UnderlyingType>(other.unwrap());
+    *this->_m_do_not_use_this = other.unwrap();
     return *this;
   }
 };

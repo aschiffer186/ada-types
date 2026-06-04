@@ -203,6 +203,19 @@ TEST(TestStrongType, TestUnwrap) {
       (std::is_same_v<decltype(std::move(ref).unwrap()), int_wrapper&>));
   EXPECT_TRUE((std::is_same_v<decltype(std::move(std::as_const(ref)).unwrap()),
                               int_wrapper&>));
+
+  using const_reference = cina::strong_type<struct Tag3, const int_wrapper&>;
+  const int_wrapper const_value{42};
+  const_reference const_ref{const_value};
+  EXPECT_TRUE(
+      (std::is_same_v<decltype(const_ref.unwrap()), const int_wrapper&>));
+  EXPECT_TRUE((std::is_same_v<decltype(std::as_const(const_ref).unwrap()),
+                              const int_wrapper&>));
+  EXPECT_TRUE((std::is_same_v<decltype(std::move(const_ref).unwrap()),
+                              const int_wrapper&>));
+  EXPECT_TRUE(
+      (std::is_same_v<decltype(std::move(std::as_const(const_ref)).unwrap()),
+                      const int_wrapper&>));
 }
 
 TEST(TestStrongType, TestSwap) {
